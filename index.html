@@ -406,7 +406,6 @@
       aspect-ratio: 1;
       background: #000;
       overflow: hidden;
-      padding-bottom: env(safe-area-inset-bottom, 20px);
     }
     #cameraVideo {
       width: 100%;
@@ -470,7 +469,6 @@
       justify-content: center;
       background: rgba(10,10,15,0.9);
       gap: 0.75rem;
-      padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 12px);
     }
     .scan-placeholder p {
       font-size: 0.8rem;
@@ -481,14 +479,15 @@
       font-family: var(--font-mono);
     }
 
-    .scan-tip {
-      font-size: 0.9rem;
-      color: var(--accent);
-      font-weight: 700;
-      text-align: center;
-      max-width: 260px;
-      margin-top: 0.5rem;
+    .scanner-hint {
+      font-size: 0.75rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
       font-family: var(--font-mono);
+      padding: 0.75rem 1.25rem 0;
+      text-align: center;
+      min-height: 1.2rem;
     }
 
     .cam-start-btn {
@@ -505,6 +504,7 @@
       transition: transform 0.15s;
       position: relative;
       z-index: 10010;
+      margin-bottom: env(safe-area-inset-bottom, 24px);
     }
     .cam-start-btn:hover { transform: scale(1.03); }
 
@@ -746,9 +746,11 @@
       </div>
       <div class="scan-placeholder" id="scanPlaceholder">
         <p>Kamera starten, um Spotify-QR-Codes zu scannen</p>
-        <p class="scan-tip">Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — danach funktioniert der Scanner zuverlässig.</p>
-        <button class="cam-start-btn" id="camStartBtn">Kamera starten</button>
       </div>
+    </div>
+    <div class="scanner-hint">Spotify App muss geöffnet sein</div>
+    <div style="padding: 0.75rem 1.25rem 0; display: flex; justify-content: center; z-index: 10010;">
+      <button class="cam-start-btn" id="camStartBtn">Kamera starten</button>
     </div>
     <div class="scanner-status" id="scannerStatus">Bereit zum Scannen.</div>
   </div>
@@ -1045,79 +1047,10 @@ async function getAccessToken() {
   // else: stay on password screen (default)
 })();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SPOTIFY WEB PLAYBACK SDK
-// ─────────────────────────────────────────────────────────────────────────────
-let spotifyPlayer   = null;
-let deviceId        = null;
-let sdkReady        = false;
-let sdkReadyResolve = null;
-const sdkReadyPromise = new Promise(res => { sdkReadyResolve = res; });
-
-window.onSpotifyWebPlaybackSDKReady = function () {
-  sdkReady = true;
-  if (sdkReadyResolve) sdkReadyResolve();
-};
-
-function loadSpotifySDK() {
-  if (document.getElementById('spotify-sdk')) return;
-  const s    = document.createElement('script');
-  s.id       = 'spotify-sdk';
-  s.src      = 'https://sdk.scdn.co/spotify-player.js';
-  s.onerror  = () => console.error('Spotify SDK konnte nicht geladen werden.');
-  document.head.appendChild(s);
-}
-
-async function initSpotifyPlayer(token) {
-  loadSpotifySDK();
-  await sdkReadyPromise;
-
-  let readyResolve;
-  const readyPromise = new Promise(resolve => { readyResolve = resolve; });
-
-  spotifyPlayer = new Spotify.Player({
-    name:              'Mockster Player',
-    getOAuthToken:     cb => cb(token),
-    volume:            0.8,
-  });
-
-  spotifyPlayer.addListener('ready', ({ device_id }) => {
-    deviceId = device_id;
-    console.log('✓ SPOTIFY PLAYER READY', { 
-      device_id, 
-      timestamp: new Date().toISOString(),
-      token_available: !!token 
-    });
-    readyResolve(device_id);
-  });
-  spotifyPlayer.addListener('not_ready', () => {
-    console.warn('✗ SPOTIFY PLAYER NOT READY', { 
-      deviceId, 
-      timestamp: new Date().toISOString() 
-    });
-    deviceId = null;
-  });
-  spotifyPlayer.addListener('player_state_changed', handlePlayerStateChange);
-  spotifyPlayer.addListener('initialization_error', ({ message }) =>
-    console.error('✗ SPOTIFY INIT ERROR:', message));
-  spotifyPlayer.addListener('authentication_error', ({ message }) => {
-    console.error('✗ SPOTIFY AUTH ERROR:', message);
-    localStorage.removeItem('spotify_token');
-  });
-  spotifyPlayer.addListener('account_error', ({ message }) =>
-    console.error('✗ SPOTIFY ACCOUNT ERROR:', message));
-
-  await spotifyPlayer.connect();
-  await Promise.race([
-    readyPromise,
-    new Promise(resolve => setTimeout(resolve, 8000)),
-  ]);
-  console.log('✓ SPOTIFY PLAYER CONNECT COMPLETED', { 
-    deviceId, 
-    ready: !!deviceId,
-    timestamp: new Date().toISOString()
-  });
-}
+// Web Playback SDK disabled: using Spotify Connect via Web API only.
+// Removed window.onSpotifyWebPlaybackSDKReady, loadSpotifySDK and initSpotifyPlayer to avoid
+// the browser registering as an active device ("Mockster Audio").
+let deviceId = null;
 
 async function transferPlaybackToDevice(token, device_id) {
   console.log('📤 TRANSFER PLAYBACK TO DEVICE START', { 
@@ -1201,6 +1134,36 @@ async function findActiveSpotifyDevice(token) {
     return device;
   } catch (e) {
     console.error('✗ PLAYER STATE LOOKUP ERROR', { message: e.message, stack: e.stack });
+    return null;
+  }
+}
+
+// New helper: get devices list and pick a real device (filter out Mockster/browser players)
+async function findRealDeviceFromDevicesList(token) {
+  console.log('📡 FETCHING DEVICES LIST AND FILTERING MOCKSTER');
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      console.error('✗ DEVICES API FAILED', { status: res.status, statusText: res.statusText });
+      return null;
+    }
+    const data = await res.json();
+    const devices = Array.isArray(data.devices) ? data.devices : [];
+
+    const realDevices = devices.filter(d => {
+      const name = (d.name || '').toLowerCase();
+      return !name.includes('mockster') && d.type !== 'Computer';
+    });
+
+    console.log('📡 REAL DEVICES', { count: realDevices.length, devices: realDevices.map(d => ({ id: d.id, name: d.name, type: d.type, is_active: d.is_active })) });
+
+    const device = realDevices.find(d => d.is_active) || realDevices[0] || null;
+    if (!device) return null;
+    return device;
+  } catch (e) {
+    console.error('✗ DEVICES LIST ERROR', { message: e.message, stack: e.stack });
     return null;
   }
 }
@@ -1374,8 +1337,20 @@ async function playTrack(trackId, statusEl) {
     timestamp: new Date().toISOString()
   });
 
+  // New: choose real device from devices list (filter out Mockster/browser players)
+  const realDevice = await findRealDeviceFromDevicesList(token);
+  if (!realDevice) {
+    console.error('✗ NO REAL DEVICE FOUND - PROMPT USER');
+    setStatus(statusEl, 'Öffne Spotify auf deinem Gerät und starte kurz einen Song, dann versuche es nochmal.', 'err');
+    return;
+  }
+
+  targetDeviceId = realDevice.id;
+  targetDeviceName = realDevice.name;
+  setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
+
   // Step 1: Transfer playback
-  console.log('📤 STEP 1: TRANSFER PLAYBACK');
+  console.log('📤 STEP 1: TRANSFER PLAYBACK to', targetDeviceId);
   const transferOk = await transferPlaybackToDevice(token, targetDeviceId);
   
   if (!transferOk) {
@@ -1481,10 +1456,7 @@ function logout() {
   stopCamera();
   
   // Disconnect Spotify player
-  if (spotifyPlayer) {
-    spotifyPlayer.disconnect();
-    spotifyPlayer = null;
-  }
+  // Web Playback SDK disabled — nothing to disconnect here.
   deviceId = null;
   
   // Clear all OAuth tokens and session data
@@ -1527,10 +1499,7 @@ async function initGame() {
     token_length: token?.length
   });
 
-  console.log('🎵 INITIALIZING SPOTIFY PLAYER');
-  await initSpotifyPlayer(token).catch(e => {
-    console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
-  });
+  console.log('🎵 Web Playback SDK disabled; using Spotify Connect via Web API');
 
   if (listenersConfigured) {
     console.log('⚠ Listeners already configured');
@@ -1682,9 +1651,7 @@ async function stopPlayback() {
   }
   
   // Also use SDK pause as fallback
-  if (spotifyPlayer) {
-    await spotifyPlayer.pause().catch(() => {});
-  }
+  // SDK disabled — no SDK pause fallback.
   
   // Hide now-playing UI
   const npEl = document.getElementById('nowPlaying');
