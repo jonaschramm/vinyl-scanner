@@ -503,10 +503,16 @@
       letter-spacing: 0.1em;
       transition: transform 0.15s;
       position: relative;
-      z-index: 10010;
-      margin-bottom: env(safe-area-inset-bottom, 24px);
+      z-index: 100;
     }
     .cam-start-btn:hover { transform: scale(1.03); }
+    
+    /* Safe area inset for iPhone home indicator */
+    @supports (margin-bottom: max(0px)) {
+      #screen-game {
+        padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+      }
+    }
 
     .scanner-status {
       padding: 0.75rem 1.25rem;
@@ -749,10 +755,12 @@
       </div>
     </div>
     <div class="scanner-hint">Spotify App muss geöffnet sein</div>
-    <div style="padding: 0.75rem 1.25rem 0; display: flex; justify-content: center; z-index: 10010;">
-      <button class="cam-start-btn" id="camStartBtn">Kamera starten</button>
-    </div>
     <div class="scanner-status" id="scannerStatus">Bereit zum Scannen.</div>
+  </div>
+
+  <!-- Camera Start Button Container (outside scanner card) -->
+  <div style="width: 100%; max-width: 540px; display: flex; justify-content: center; padding: 0.75rem 1.25rem; position: relative; z-index: 100;">
+    <button class="cam-start-btn" id="camStartBtn">Kamera starten</button>
   </div>
 
   <!-- Now Playing -->
@@ -1138,9 +1146,9 @@ async function findActiveSpotifyDevice(token) {
   }
 }
 
-// New helper: get devices list and pick a real device (filter out Mockster/browser players)
+// New helper: get devices list and pick a real device (filter out only Mockster)
 async function findRealDeviceFromDevicesList(token) {
-  console.log('📡 FETCHING DEVICES LIST AND FILTERING MOCKSTER');
+  console.log('📡 FETCHING DEVICES LIST');
   try {
     const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
       headers: { Authorization: `Bearer ${token}` },
@@ -1152,15 +1160,40 @@ async function findRealDeviceFromDevicesList(token) {
     const data = await res.json();
     const devices = Array.isArray(data.devices) ? data.devices : [];
 
+    // Nur Mockster herausfiltern, alle anderen Geräte erlauben
     const realDevices = devices.filter(d => {
       const name = (d.name || '').toLowerCase();
-      return !name.includes('mockster') && d.type !== 'Computer';
+      return !name.includes('mockster');
     });
 
-    console.log('📡 REAL DEVICES', { count: realDevices.length, devices: realDevices.map(d => ({ id: d.id, name: d.name, type: d.type, is_active: d.is_active })) });
+    // Fallback: falls realDevices leer, alle Devices nehmen
+    const pool = realDevices.length > 0 ? realDevices : devices;
 
-    const device = realDevices.find(d => d.is_active) || realDevices[0] || null;
+    // Log alle gefundenen Geräte für Debugging
+    console.log('📡 ALL DEVICES FROM API', { 
+      total: devices.length,
+      devices: devices.map(d => ({ 
+        id: d.id, 
+        name: d.name, 
+        type: d.type, 
+        is_active: d.is_active 
+      })) 
+    });
+    console.log('📡 REAL DEVICES (Mockster filtered)', { 
+      count: realDevices.length, 
+      devices: realDevices.map(d => ({ 
+        id: d.id, 
+        name: d.name, 
+        type: d.type, 
+        is_active: d.is_active 
+      })) 
+    });
+
+    // Wähle aktives Gerät oder erstes verfügbares
+    let device = pool.find(d => d.is_active) || pool[0];
     if (!device) return null;
+    
+    console.log('✓ SELECTED DEVICE', { id: device.id, name: device.name, type: device.type });
     return device;
   } catch (e) {
     console.error('✗ DEVICES LIST ERROR', { message: e.message, stack: e.stack });
@@ -1460,16 +1493,14 @@ function logout() {
   deviceId = null;
   
   // Clear all OAuth tokens and session data
-  console.log('🔒 Removing all OAuth tokens from localStorage');
-  localStorage.removeItem('spotify_token');
-  localStorage.removeItem('spotify_token_exp');
-  localStorage.removeItem('spotify_refresh');
-  localStorage.removeItem('pkce_verifier');
-  localStorage.removeItem('pkce_state');
+  console.log('🔒 Clearing all localStorage');
+  localStorage.clear();
   
   // Reset global state
-  sdkReady = false;
   listenersConfigured = false;
+  isScanning = false;
+  scanPaused = false;
+  lastScannedId = null;
   
   console.log('✓ LOGOUT COMPLETE - Returning to password screen');
   
@@ -1480,6 +1511,12 @@ function logout() {
   if (pwError) {
     pwError.textContent = 'Logout erfolgreich. Gib den Zugangscode erneut ein.';
     pwError.classList.add('visible');
+  }
+  
+  const pwInput = document.getElementById('pwInput');
+  if (pwInput) {
+    pwInput.value = '';
+    pwInput.focus();
   }
 }
 
