@@ -419,13 +419,17 @@
       position: absolute;
       inset: 0;
       display: flex;
-      align-items: center;
       justify-content: center;
+      pointer-events: none;
     }
     .scan-frame {
-      width: 55%;
+      width: min(65vw, 65vh);
+      max-width: 65vw;
       aspect-ratio: 1;
-      position: relative;
+      position: absolute;
+      top: 15vh;
+      left: 50%;
+      transform: translateX(-50%);
     }
     .scan-frame::before, .scan-frame::after,
     .scan-frame > span::before, .scan-frame > span::after {
@@ -449,6 +453,7 @@
       background: linear-gradient(90deg, transparent, var(--accent), transparent);
       animation: scanLine 2s ease-in-out infinite;
       box-shadow: 0 0 8px var(--accent);
+      pointer-events: none;
     }
     @keyframes scanLine {
       0%   { top: 10%; opacity: 1; }
@@ -720,8 +725,10 @@
       <video id="cameraVideo" autoplay muted playsinline></video>
       <canvas id="cameraCanvas"></canvas>
       <div class="scan-overlay" id="scanOverlay" style="display:none">
-        <div class="scan-frame"><span></span></div>
-        <div class="scan-line"></div>
+        <div class="scan-frame">
+          <span></span>
+          <div class="scan-line"></div>
+        </div>
       </div>
       <div class="scan-placeholder" id="scanPlaceholder">
         <p>Kamera starten, um Spotify-QR-Codes zu scannen</p>
@@ -1457,6 +1464,7 @@ function setStatus(el, text, type) {
 // ─────────────────────────────────────────────────────────────────────────────
 let cameraStream  = null;
 let isScanning    = false;
+let scanPaused    = false;
 let lastScannedId = null;
 let listenersConfigured = false;
 
@@ -1572,6 +1580,9 @@ async function startCamera() {
   const status      = document.getElementById('scannerStatus');
   const video       = document.getElementById('cameraVideo');
 
+  scanPaused    = false;
+  lastScannedId = null;
+
   setStatus(status, 'Kamera wird gestartet…', '');
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -1595,11 +1606,11 @@ async function startCamera() {
 
 function stopCamera() {
   isScanning = false;
+  scanPaused = false;
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
   }
-  isScanning = false;
   lastScannedId = null;
   const placeholder = document.getElementById('scanPlaceholder');
   const overlay     = document.getElementById('scanOverlay');
@@ -1609,8 +1620,8 @@ function stopCamera() {
   if (badge)       { badge.textContent = 'Inaktiv'; badge.classList.add('inactive'); }
 }
 
-function scanLoop() {
-  if (!isScanning) return;
+async function scanLoop() {
+  if (!isScanning || scanPaused) return;
 
   const video  = document.getElementById('cameraVideo');
   const canvas = document.getElementById('cameraCanvas');
@@ -1628,13 +1639,14 @@ function scanLoop() {
       const trackId = parseSpotifyTrackId(code.data);
       if (trackId && trackId !== lastScannedId) {
         lastScannedId = trackId;
+        scanPaused = true;
         setStatus(status, 'QR erkannt! Starte Song…', 'ok');
-        playTrack(trackId, status);
-        // allow re-scan after 5 s
-        setTimeout(() => { lastScannedId = null; }, 5000);
+        await playTrack(trackId, status);
+        return;
       }
     }
   }
+
   requestAnimationFrame(scanLoop);
 }
 
