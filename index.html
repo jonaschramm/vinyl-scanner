@@ -776,6 +776,7 @@ const CLIENT_ID    = '54131291255648998a3815cef4f4b7de';
 const REDIRECT_URI = window.location.href.split('?')[0].split('#')[0];
 const SCOPES       = 'streaming user-read-email user-read-private user-modify-playback-state';
 const PASSWORD     = '1234';
+const isIOS        = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN MANAGER
@@ -1219,6 +1220,62 @@ async function findActiveSpotifyDevice(token) {
   }
 }
 
+async function findNonMocksterDevice(token) {
+  console.log('📡 FINDING NON-MOCKSTER SPOTIFY DEVICE');
+  
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      console.error('✗ DEVICES API FAILED', { 
+        status: res.status,
+        statusText: res.statusText 
+      });
+      return null;
+    }
+
+    const data = await res.json();
+    const devices = Array.isArray(data.devices) ? data.devices : [];
+
+    console.log('📡 DEVICES FOUND', {
+      count: devices.length,
+      devices: devices.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        is_active: d.is_active,
+        is_private_session: d.is_private_session,
+        is_restricted: d.is_restricted
+      }))
+    });
+
+    const preferred = devices.find(d => d.name && !d.name.toLowerCase().includes('mockster audio'));
+    if (preferred) {
+      console.log('✓ NON-MOCKSTER DEVICE FOUND', { id: preferred.id, name: preferred.name });
+      return preferred.id;
+    }
+
+    if (devices.length > 0) {
+      console.warn('⚠ No non-Mockster device found; using first available device', {
+        id: devices[0].id,
+        name: devices[0].name
+      });
+      return devices[0].id;
+    }
+
+    console.error('✗ NO DEVICES AVAILABLE');
+    return null;
+  } catch (e) {
+    console.error('✗ DEVICE LOOKUP ERROR', {
+      message: e.message,
+      stack: e.stack
+    });
+    return null;
+  }
+}
+
 function handlePlayerStateChange(state) {
   console.log('🎵 PLAYER STATE CHANGED', {
     paused: state?.paused,
@@ -1334,43 +1391,58 @@ async function playTrack(trackId, statusEl) {
     token_prefix: token?.substring(0, 20) + '...'
   });
 
-  // Check if device is ready
-  if (!deviceId) {
-    console.warn('⚠ NO DEVICE ID YET', { 
-      deviceId, 
-      trying_to_find: true
-    });
-    setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
-    await new Promise(r => setTimeout(r, 1500));
-    
-    if (!deviceId) {
-      console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
-      deviceId = await findActiveSpotifyDevice(token);
-      if (deviceId) {
-        console.log('✓ FOUND ACTIVE DEVICE', { deviceId });
-        setStatus(statusEl, 'Nutze aktives Spotify-Gerät.', 'ok');
-      }
+  let targetDeviceId = deviceId;
+
+  if (isIOS) {
+    setStatus(statusEl, 'Spotify App wird gesteuert — stelle sicher dass Spotify geöffnet ist', 'ok');
+    console.log('📡 iOS playback fallback active');
+
+    targetDeviceId = await findNonMocksterDevice(token);
+    if (!targetDeviceId) {
+      console.error('✗ NO IOS DEVICE FOUND');
+      setStatus(statusEl, 'Konnte kein iPhone-Gerät finden. Öffne Spotify auf deinem iPhone.', 'err');
+      return;
     }
 
-    if (!deviceId) {
-      console.error('✗ NO DEVICE FOUND', { 
-        timestamp: new Date().toISOString(),
-        help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
+    console.log('✓ IOS DEVICE SELECTED', { deviceId: targetDeviceId });
+  } else {
+    if (!targetDeviceId) {
+      console.warn('⚠ NO DEVICE ID YET', { 
+        deviceId: targetDeviceId, 
+        trying_to_find: true
       });
-      setStatus(statusEl, 'Gerät nicht gefunden. Öffne Spotify oder warte auf den Web-Player.', 'err');
-      return;
+      setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
+      await new Promise(r => setTimeout(r, 1500));
+      
+      if (!targetDeviceId) {
+        console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
+        targetDeviceId = await findActiveSpotifyDevice(token);
+        if (targetDeviceId) {
+          console.log('✓ FOUND ACTIVE DEVICE', { deviceId: targetDeviceId });
+          setStatus(statusEl, 'Nutze aktives Spotify-Gerät.', 'ok');
+        }
+      }
+
+      if (!targetDeviceId) {
+        console.error('✗ NO DEVICE FOUND', { 
+          timestamp: new Date().toISOString(),
+          help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
+        });
+        setStatus(statusEl, 'Gerät nicht gefunden. Öffne Spotify oder warte auf den Web-Player.', 'err');
+        return;
+      }
     }
   }
 
   console.log('🎵 READY TO PLAY', { 
     trackId,
-    deviceId,
+    deviceId: targetDeviceId,
     timestamp: new Date().toISOString()
   });
 
   // Step 1: Transfer playback
   console.log('📤 STEP 1: TRANSFER PLAYBACK');
-  const transferOk = await transferPlaybackToDevice(token, deviceId);
+  const transferOk = await transferPlaybackToDevice(token, targetDeviceId);
   
   if (!transferOk) {
     console.error('✗ TRANSFER FAILED - SKIPPING PLAY');
@@ -1522,9 +1594,15 @@ async function initGame() {
   });
 
   console.log('🎵 INITIALIZING SPOTIFY PLAYER');
-  await initSpotifyPlayer(token).catch(e => {
-    console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
-  });
+  if (isIOS) {
+    console.log('⚠ iOS detected; skipping Web Playback SDK and using Spotify Connect fallback');
+    const scannerStatus = document.getElementById('scannerStatus');
+    setStatus(scannerStatus, 'Spotify App wird gesteuert — stelle sicher dass Spotify geöffnet ist', 'ok');
+  } else {
+    await initSpotifyPlayer(token).catch(e => {
+      console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
+    });
+  }
 
   if (listenersConfigured) {
     console.log('⚠ Listeners already configured');
