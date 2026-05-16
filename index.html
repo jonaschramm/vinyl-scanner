@@ -712,6 +712,27 @@
       animation: rot 0.7s linear infinite;
     }
     @keyframes rot { to { transform: rotate(360deg); } }
+
+    /* ── Debug log panel ─────────────────────────────────────────── */
+    #debugLog {
+      padding: 0.4rem 1rem;
+      font-size: 0.62rem;
+      font-family: var(--font-mono);
+      color: #4a5568;
+      background: rgba(255,255,255,0.015);
+      max-height: 110px;
+      overflow-y: auto;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    #debugLog div {
+      padding: 0.1rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #debugLog div.ok  { color: #2d6a4f; }
+    #debugLog div.err { color: #7f1d1d; }
   </style>
 </head>
 <body>
@@ -803,6 +824,7 @@
     </div>
     <div class="scanner-hint">Spotify App muss geöffnet sein</div>
     <div class="scanner-status" id="scannerStatus">Bereit zum Scannen.</div>
+    <div id="debugLog"></div>
   </div>
 
   <!-- Camera Start Button Container (outside scanner card) -->
@@ -842,7 +864,30 @@
 <!-- ═══════════════════════════════ SCRIPTS ═════════════════════════════════ -->
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
+  console.log('jsQR verfügbar:', typeof jsQR);
+  if (typeof jsQR === 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const el = document.getElementById('debugLog');
+      if (el) { const d = document.createElement('div'); d.className = 'err'; d.textContent = '✗ jsQR NICHT GELADEN — CDN-Fehler?'; el.prepend(d); }
+    });
+  }
+</script>
+<script>
 'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI DEBUG LOG  (visible on-screen for iOS Safari where DevTools are hard to reach)
+// ─────────────────────────────────────────────────────────────────────────────
+function uiLog(msg, type) {
+  console.log('[dbg]', msg);
+  const el = document.getElementById('debugLog');
+  if (!el) return;
+  const d = document.createElement('div');
+  if (type) d.className = type;
+  d.textContent = new Date().toTimeString().slice(0, 8) + ' ' + msg;
+  el.insertBefore(d, el.firstChild);
+  while (el.children.length > 25) el.removeChild(el.lastChild);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
@@ -1330,6 +1375,9 @@ async function playTrack(trackId) {
 
     if (stateRes.status === 204 || stateRes.status === 404) {
       showHint('Öffne Spotify kurz und starte einen Song — dann nochmal versuchen.');
+      uiLog('Kein aktives Gerät (204/404) — scan resumiert', 'err');
+      isScanning = true;
+      requestAnimationFrame(scanLoop);
       return;
     }
 
@@ -1355,6 +1403,9 @@ async function playTrack(trackId) {
       } else {
         showError(`Fehler ${playRes.status}: ${err?.error?.message || 'Unbekannter Fehler'}`);
       }
+      uiLog(`Play fehlgeschlagen (${playRes.status}) — scan resumiert`, 'err');
+      isScanning = true;
+      requestAnimationFrame(scanLoop);
       return;
     }
 
@@ -1375,6 +1426,9 @@ async function playTrack(trackId) {
   } catch (e) {
     console.error('✗ PLAY ERROR', e);
     showError(`Netzwerkfehler: ${e.message}`);
+    uiLog(`Netzwerkfehler — scan resumiert`, 'err');
+    isScanning = true;
+    requestAnimationFrame(scanLoop);
   }
 }
 
@@ -1599,11 +1653,22 @@ async function startCamera() {
   lastScannedId = null;
 
   setStatus(status, 'Kamera wird gestartet…', '');
+  uiLog('Kamera: Starte getUserMedia…');
   try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-      audio: false,
-    });
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: 'environment' } },
+        audio: false,
+      });
+      uiLog('Kamera: Rückkamera (exact environment) ✓', 'ok');
+    } catch (envErr) {
+      uiLog('exact environment fehlgeschlagen → fallback');
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      uiLog('Kamera: environment (fallback) ✓', 'ok');
+    }
     video.srcObject = cameraStream;
 
     const startScanning = () => {
@@ -1615,7 +1680,9 @@ async function startCamera() {
       badge.classList.remove('inactive');
       isScanning = true;
       scanPaused = false;
+      _scanTick  = 0;
       setStatus(status, 'Halte einen Spotify-QR-Code in den Rahmen.', '');
+      uiLog('Scan-Loop gestartet ✓', 'ok');
       requestAnimationFrame(scanLoop);
     };
 
@@ -1658,23 +1725,46 @@ function stopCamera() {
   if (camBtn)      camBtn.style.display      = 'inline-block';
 }
 
-async function scanLoop() {
+let _scanTick = 0;
+function scanLoop() {
   const video = document.getElementById('cameraVideo');
   if (!isScanning || !video) return;
+  _scanTick++;
+
+  // Log status once per second (~60 fps)
+  if (_scanTick % 60 === 1) {
+    uiLog(`Tick #${_scanTick} readyState:${video.readyState} scanning:${isScanning}`);
+  }
+
   if (video.readyState !== video.HAVE_ENOUGH_DATA) {
     requestAnimationFrame(scanLoop);
     return;
   }
 
-  scanCanvas.width = video.videoWidth;
+  scanCanvas.width  = video.videoWidth;
   scanCanvas.height = video.videoHeight;
+
+  if (_scanTick % 60 === 1) {
+    uiLog(`Canvas: ${scanCanvas.width}x${scanCanvas.height}`);
+  }
+
+  if (scanCanvas.width === 0 || scanCanvas.height === 0) {
+    requestAnimationFrame(scanLoop);
+    return;
+  }
+
   scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
   const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
   const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: 'dontInvert'
+    inversionAttempts: 'attemptBoth'
   });
 
+  if (_scanTick % 60 === 1) {
+    uiLog(`jsQR: ${code ? '✓ ' + code.data.substring(0, 40) : 'null — kein Code'}`);
+  }
+
   if (code && code.data) {
+    uiLog(`✓ QR erkannt: ${code.data.substring(0, 60)}`, 'ok');
     console.log('QR erkannt:', code.data);
     isScanning = false;
     handleQRCode(code.data);
