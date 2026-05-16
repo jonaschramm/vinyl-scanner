@@ -856,34 +856,43 @@ function showScreen(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN 1 – PASSWORD
 // ─────────────────────────────────────────────────────────────────────────────
-(function initPassword() {
-  const input  = document.getElementById('pwInput');
-  const btn    = document.getElementById('pwSubmit');
-  const errEl  = document.getElementById('pwError');
+function initPassword() {
+  const pwInput = document.getElementById('pwInput');
+  const pwBtn   = document.getElementById('pwSubmit');
+  const pwError = document.getElementById('pwError');
 
-  function attempt() {
-    const entered = input.value.trim();
+  if (!pwInput || !pwBtn) {
+    console.error('Password input or button element not found');
+    return;
+  }
+
+  function checkPassword() {
+    const entered = pwInput.value.trim();
     console.log('Passwort-Versuch gestartet');
     console.log('Eingegebenes Passwort:', entered);
-    if (entered === PASSWORD) {
-      console.log('Passwort korrekt, wechsle zu screen-connect');
-      errEl.classList.remove('visible');
-      input.classList.remove('error');
+    if (entered === 'paulali') {
+      console.log('Passwort korrekt — wechsle Screen');
+      if (pwError) pwError.classList.remove('visible');
+      pwInput.classList.remove('error');
       showScreen('screen-connect');
     } else {
-      console.log('Passwort falsch, bleibe auf screen-password');
-      input.classList.add('error');
-      errEl.classList.add('visible');
-      input.classList.add('shake');
-      input.addEventListener('animationend', () => input.classList.remove('shake'), { once: true });
-      input.value = '';
-      input.focus();
+      console.log('Passwort falsch');
+      pwInput.classList.add('error');
+      if (pwError) pwError.classList.add('visible');
+      setTimeout(() => pwInput.classList.remove('error'), 500);
     }
   }
 
-  btn.addEventListener('click', attempt);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
-})();
+  pwBtn.addEventListener('click', checkPassword);
+  pwInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.keyCode === 13) {
+      e.preventDefault();
+      checkPassword();
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initPassword);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PKCE HELPERS
