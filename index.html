@@ -882,6 +882,40 @@ function getToken() {
   return token;
 }
 
+async function refreshSpotifyToken() {
+  const refreshToken = localStorage.getItem('spotify_refresh');
+  if (!refreshToken) return null;
+
+  const body = new URLSearchParams({
+    grant_type:    'refresh_token',
+    refresh_token: refreshToken,
+    client_id:     CLIENT_ID,
+  });
+
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+
+  if (!res.ok) {
+    localStorage.removeItem('spotify_token');
+    localStorage.removeItem('spotify_token_exp');
+    localStorage.removeItem('spotify_refresh');
+    return null;
+  }
+
+  const data = await res.json();
+  localStorage.setItem('spotify_token',     data.access_token);
+  localStorage.setItem('spotify_token_exp', Date.now() + data.expires_in * 1000);
+  if (data.refresh_token) localStorage.setItem('spotify_refresh', data.refresh_token);
+  return data.access_token;
+}
+
+async function getAccessToken() {
+  return getToken() || await refreshSpotifyToken();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN 2 – SPOTIFY CONNECT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -954,10 +988,16 @@ function getToken() {
     return;
   }
 
-  // Fresh load — check for existing valid token
+  // Fresh load — check for existing valid token or refresh token
   if (getToken()) {
     showScreen('screen-game');
     initGame();
+  } else if (localStorage.getItem('spotify_refresh')) {
+    const refreshed = await refreshSpotifyToken();
+    if (refreshed) {
+      showScreen('screen-game');
+      initGame();
+    }
   }
   // else: stay on password screen (default)
 })();
@@ -1040,7 +1080,7 @@ function parseSpotifyTrackId(text) {
 }
 
 async function playTrack(trackId, statusEl) {
-  const token = getToken();
+  const token = await getAccessToken();
   if (!token) {
     setStatus(statusEl, 'Token abgelaufen. Bitte neu verbinden.', 'err');
     return;
@@ -1091,9 +1131,13 @@ function setStatus(el, text, type) {
 let cameraStream  = null;
 let isScanning    = false;
 let lastScannedId = null;
+let gameInitialized = false;
 
-function initGame() {
-  const token = getToken();
+async function initGame() {
+  if (gameInitialized) return;
+  gameInitialized = true;
+
+  const token = await getAccessToken();
   if (!token) { showScreen('screen-connect'); return; }
   initSpotifyPlayer(token).catch(console.error);
 
@@ -1161,6 +1205,8 @@ function stopCamera() {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
   }
+  isScanning = false;
+  lastScannedId = null;
   const placeholder = document.getElementById('scanPlaceholder');
   const overlay     = document.getElementById('scanOverlay');
   const badge       = document.getElementById('scannerBadge');
