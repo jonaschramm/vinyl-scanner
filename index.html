@@ -1146,60 +1146,7 @@ async function findActiveSpotifyDevice(token) {
   }
 }
 
-// New helper: get devices list and pick a real device (filter out only Mockster)
-async function findRealDeviceFromDevicesList(token) {
-  console.log('📡 FETCHING DEVICES LIST');
-  try {
-    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      console.error('✗ DEVICES API FAILED', { status: res.status, statusText: res.statusText });
-      return null;
-    }
-    const data = await res.json();
-    const devices = Array.isArray(data.devices) ? data.devices : [];
-
-    // Nur Mockster herausfiltern, alle anderen Geräte erlauben
-    const realDevices = devices.filter(d => {
-      const name = (d.name || '').toLowerCase();
-      return !name.includes('mockster');
-    });
-
-    // Fallback: falls realDevices leer, alle Devices nehmen
-    const pool = realDevices.length > 0 ? realDevices : devices;
-
-    // Log alle gefundenen Geräte für Debugging
-    console.log('📡 ALL DEVICES FROM API', { 
-      total: devices.length,
-      devices: devices.map(d => ({ 
-        id: d.id, 
-        name: d.name, 
-        type: d.type, 
-        is_active: d.is_active 
-      })) 
-    });
-    console.log('📡 REAL DEVICES (Mockster filtered)', { 
-      count: realDevices.length, 
-      devices: realDevices.map(d => ({ 
-        id: d.id, 
-        name: d.name, 
-        type: d.type, 
-        is_active: d.is_active 
-      })) 
-    });
-
-    // Wähle aktives Gerät oder erstes verfügbares
-    let device = pool.find(d => d.is_active) || pool[0];
-    if (!device) return null;
-    
-    console.log('✓ SELECTED DEVICE', { id: device.id, name: device.name, type: device.type });
-    return device;
-  } catch (e) {
-    console.error('✗ DEVICES LIST ERROR', { message: e.message, stack: e.stack });
-    return null;
-  }
-}
+// NOTE: /v1/me/player/devices based device selection removed — rely on active player state instead.
 
 function handlePlayerStateChange(state) {
   console.log('🎵 PLAYER STATE CHANGED', {
@@ -1298,172 +1245,72 @@ function parseSpotifyTrackId(text) {
   return null;
 }
 
-async function playTrack(trackId, statusEl) {
-  console.log('🎵 PLAY TRACK INITIATED', { 
-    trackId, 
-    timestamp: new Date().toISOString()
-  });
+async function playTrack(trackId) {
+  console.log('🎵 PLAY TRACK INITIATED', { trackId, timestamp: new Date().toISOString() });
 
-  const token = await getAccessToken();
-  if (!token) {
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
     console.error('✗ NO TOKEN AVAILABLE');
-    setStatus(statusEl, 'Token abgelaufen. Bitte neu verbinden.', 'err');
+    showError('Token abgelaufen. Bitte neu verbinden.');
     return;
   }
 
-  console.log('✓ TOKEN OBTAINED', { 
-    token_length: token?.length,
-    token_prefix: token?.substring(0, 20) + '...'
-  });
-
-  let targetDeviceId = deviceId;
-  let targetDeviceName = null;
-
-  // Always prefer the currently active Spotify device (regardless of platform)
-  if (!targetDeviceId) {
-    console.warn('⚠ NO DEVICE ID YET', { 
-      deviceId: targetDeviceId, 
-      trying_to_find: true
+  // Schritt 1: Aktuellen Player-State abrufen
+  try {
+    const stateRes = await fetch('https://api.spotify.com/v1/me/player', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
     });
-    setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
-    await new Promise(r => setTimeout(r, 1500));
-    
-    if (!targetDeviceId) {
-      console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
-      const dev = await findActiveSpotifyDevice(token);
-      if (dev && dev.noActiveDevice) {
-        setStatus(statusEl, 'Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — dann scanne erneut.', 'err');
-        return;
-      }
-      if (dev && dev.id) {
-        targetDeviceId = dev.id;
-        targetDeviceName = dev.name;
-        console.log('✓ FOUND ACTIVE DEVICE', { deviceId: targetDeviceId, name: targetDeviceName });
-        setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
-      }
-    }
 
-    if (!targetDeviceId) {
-      console.error('✗ NO DEVICE FOUND', { 
-        timestamp: new Date().toISOString(),
-        help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
-      });
-      setStatus(statusEl, 'Kein Spotify-Gerät gefunden. Öffne die Spotify App und starte kurz einen Song.', 'err');
+    console.log('Player State Status:', stateRes.status);
+
+    if (stateRes.status === 204 || stateRes.status === 404) {
+      showError('Bitte Spotify öffnen und einen Song starten, dann hier nochmal versuchen.');
+      console.log('Kein aktives Gerät gefunden.');
       return;
     }
-  } else {
-    // If we already have a deviceId from SDK, try to get its name for display
-    try {
-      const dev = await findActiveSpotifyDevice(await getAccessToken());
-      if (dev && dev.noActiveDevice) {
-        setStatus(statusEl, 'Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — dann scanne erneut.', 'err');
-        return;
-      }
-      if (dev && dev.id === targetDeviceId) targetDeviceName = dev.name || null;
-    } catch {}
-    if (targetDeviceName) setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
-  }
 
-  console.log('🎵 READY TO PLAY', { 
-    trackId,
-    deviceId: targetDeviceId,
-    timestamp: new Date().toISOString()
-  });
+    const state = await stateRes.json();
+    console.log('Aktiver Player State:', state);
+    console.log('Aktives Gerät:', state.device?.name, '| ID:', state.device?.id);
 
-  // New: choose real device from devices list (filter out Mockster/browser players)
-  const realDevice = await findRealDeviceFromDevicesList(token);
-  if (!realDevice) {
-    console.error('✗ NO REAL DEVICE FOUND - PROMPT USER');
-    setStatus(statusEl, 'Öffne Spotify auf deinem Gerät und starte kurz einen Song, dann versuche es nochmal.', 'err');
-    return;
-  }
-
-  targetDeviceId = realDevice.id;
-  targetDeviceName = realDevice.name;
-  setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
-
-  // Step 1: Transfer playback
-  console.log('📤 STEP 1: TRANSFER PLAYBACK to', targetDeviceId);
-  const transferOk = await transferPlaybackToDevice(token, targetDeviceId);
-  
-  if (!transferOk) {
-    console.error('✗ TRANSFER FAILED - SKIPPING PLAY');
-    setStatus(statusEl, 'Fehler: Gerät konnte nicht aktiviert werden. Öffne Spotify.', 'err');
-    return;
-  }
-
-  // Critical delay: Spotify needs 800ms to fully register device as active
-  console.log('⏳ Waiting 800ms for Spotify to register device as active...');
-  await new Promise(r => setTimeout(r, 800));
-
-  // Step 2: Play track
-  console.log('📤 STEP 2: SEND PLAY REQUEST');
-  setStatus(statusEl, 'Starte Wiedergabe…', '');
-
-  const playRequestBody = { 
-    uris: [`spotify:track:${trackId}`] 
-  };
-  console.log('📤 Play request:', playRequestBody);
-
-  try {
-    const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-      method:  'PUT',
+    // Schritt 2: Play-Request OHNE device_id
+    const playRes = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
       headers: {
-        Authorization:  `Bearer ${token}`,
-        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(playRequestBody),
+      body: JSON.stringify({ uris: [`spotify:track:${trackId}`] })
     });
 
-    const responseText = await res.text();
-    let responseBody;
-    try {
-      responseBody = responseText ? JSON.parse(responseText) : {};
-    } catch {
-      responseBody = { raw_body: responseText };
+    console.log('Play Response Status:', playRes.status);
+
+    if (!playRes.ok) {
+      const err = await playRes.json().catch(() => ({}));
+      console.error('Play Fehler:', err);
+      showError(`Fehler ${playRes.status}: ${err?.error?.message || 'Unbekannter Fehler'}`);
+      return;
     }
 
-    console.log('📥 PLAY RESPONSE', { 
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      headers: {
-        contentType: res.headers.get('content-type'),
-        contentLength: res.headers.get('content-length')
-      },
-      body: responseBody || '(empty)',
-      timestamp: new Date().toISOString()
-    });
-
-    if (res.status === 204 || res.ok) {
-      console.log('✓ PLAY SUCCESS - SONG SHOULD BE PLAYING NOW');
-      setStatus(statusEl, '▶ Wiedergabe gestartet. API Response: 204', 'ok');
-    } else if (res.status === 401) {
-      console.error('✗ 401 UNAUTHORIZED - Token expired');
-      localStorage.removeItem('spotify_token');
-      setStatus(statusEl, 'API Response: 401 – Token abgelaufen. Bitte neu einloggen.', 'err');
-    } else if (res.status === 403) {
-      console.error('✗ 403 FORBIDDEN - Likely no Premium account');
-      setStatus(statusEl, 'API Response: 403 – Kein Spotify Premium Account erforderlich.', 'err');
-    } else if (res.status === 404) {
-      console.error('✗ 404 NOT FOUND - Device or track not found');
-      setStatus(statusEl, 'API Response: 404 – Gerät oder Song nicht gefunden.', 'err');
-    } else {
-      console.error('✗ PLAY FAILED', { 
-        status: res.status,
-        body: responseBody
-      });
-      const errorMsg = responseBody?.error?.message || res.status;
-      setStatus(statusEl, `API Response: ${errorMsg}`, 'err');
-    }
+    console.log('Playback erfolgreich gestartet.');
+    showNowPlaying(state.device?.name);
   } catch (e) {
-    console.error('✗ PLAY REQUEST NETWORK ERROR', { 
-      message: e.message,
-      stack: e.stack,
-      timestamp: new Date().toISOString()
-    });
-    setStatus(statusEl, `Netzwerkfehler: ${e.message}`, 'err');
+    console.error('✗ PLAY ERROR', e);
+    showError(`Netzwerkfehler: ${e.message}`);
   }
+}
+
+function showError(msg) {
+  const scannerStatus = document.getElementById('scannerStatus');
+  const testStatus = document.getElementById('testStatus');
+  if (scannerStatus) setStatus(scannerStatus, msg, 'err');
+  if (testStatus) setStatus(testStatus, msg, 'err');
+}
+
+function showNowPlaying(deviceName) {
+  const scannerStatus = document.getElementById('scannerStatus');
+  const displayName = deviceName || 'Spotify';
+  if (scannerStatus) setStatus(scannerStatus, `Spielt auf: ${displayName}`, 'ok');
 }
 
 function setStatus(el, text, type) {
@@ -1573,7 +1420,7 @@ async function initGame() {
     }
 
     console.log('✓ VALID TRACK ID PARSED', { trackId });
-    await playTrack(trackId, status);
+    await playTrack(trackId);
   });
   document.getElementById('testInput').addEventListener('keydown', async e => {
     if (e.key === 'Enter') {
@@ -1653,7 +1500,7 @@ async function scanLoop() {
         lastScannedId = trackId;
         scanPaused = true;
         setStatus(status, 'QR erkannt! Starte Song…', 'ok');
-        await playTrack(trackId, status);
+        await playTrack(trackId);
         return;
       }
     }
