@@ -481,6 +481,16 @@
       font-family: var(--font-mono);
     }
 
+    .scan-tip {
+      font-size: 0.9rem;
+      color: var(--accent);
+      font-weight: 700;
+      text-align: center;
+      max-width: 260px;
+      margin-top: 0.5rem;
+      font-family: var(--font-mono);
+    }
+
     .cam-start-btn {
       background: var(--accent);
       color: #000;
@@ -736,6 +746,7 @@
       </div>
       <div class="scan-placeholder" id="scanPlaceholder">
         <p>Kamera starten, um Spotify-QR-Codes zu scannen</p>
+        <p class="scan-tip">Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — danach funktioniert der Scanner zuverlässig.</p>
         <button class="cam-start-btn" id="camStartBtn">Kamera starten</button>
       </div>
     </div>
@@ -780,7 +791,6 @@ const CLIENT_ID    = '54131291255648998a3815cef4f4b7de';
 const REDIRECT_URI = window.location.href.split('?')[0].split('#')[0];
 const SCOPES       = 'streaming user-read-email user-read-private user-modify-playback-state';
 const PASSWORD     = '1234';
-const isIOS        = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN MANAGER
@@ -1163,64 +1173,34 @@ async function transferPlaybackToDevice(token, device_id) {
 }
 
 async function findActiveSpotifyDevice(token) {
-  console.log('📡 FINDING ACTIVE SPOTIFY DEVICE');
-  
+  console.log('📡 FETCHING PLAYER STATE FOR ACTIVE DEVICE');
+
   try {
-    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    const res = await fetch('https://api.spotify.com/v1/me/player', {
       headers: { Authorization: `Bearer ${token}` },
     });
 
+    if (res.status === 204 || res.status === 404) {
+      console.warn('⚠ No active player state (204/404)');
+      return { noActiveDevice: true };
+    }
+
     if (!res.ok) {
-      console.error('✗ DEVICES API FAILED', { 
-        status: res.status,
-        statusText: res.statusText 
-      });
+      console.error('✗ PLAYER STATE API FAILED', { status: res.status, statusText: res.statusText });
       return null;
     }
 
-    const data = await res.json();
-    const devices = Array.isArray(data.devices) ? data.devices : [];
-
-    console.log('📡 DEVICES FOUND', {
-      count: devices.length,
-      devices: devices.map(d => ({
-        id: d.id,
-        name: d.name,
-        type: d.type,
-        is_active: d.is_active,
-        is_private_session: d.is_private_session,
-        is_restricted: d.is_restricted
-      }))
-    });
-
-    // Prefer the currently active device
-    const activeDevice = devices.find(d => d.is_active);
-    if (activeDevice) {
-      console.log('✓ ACTIVE DEVICE FOUND', {
-        id: activeDevice.id,
-        name: activeDevice.name,
-        type: activeDevice.type
-      });
-      return activeDevice; // return full device object
+    const state = await res.json();
+    const device = state.device;
+    if (!device || !device.id) {
+      console.warn('✗ No active device in player state');
+      return null;
     }
 
-    // If no active device, use first available
-    if (devices.length > 0) {
-      console.log('⚠ NO ACTIVE DEVICE, using first available:', {
-        id: devices[0].id,
-        name: devices[0].name,
-        type: devices[0].type
-      });
-      return devices[0];
-    }
-
-    console.error('✗ NO DEVICES AVAILABLE');
-    return null;
+    console.log('✓ ACTIVE DEVICE FROM STATE', { id: device.id, name: device.name });
+    return device;
   } catch (e) {
-    console.error('✗ DEVICE LOOKUP ERROR', {
-      message: e.message,
-      stack: e.stack
-    });
+    console.error('✗ PLAYER STATE LOOKUP ERROR', { message: e.message, stack: e.stack });
     return null;
   }
 }
@@ -1355,6 +1335,10 @@ async function playTrack(trackId, statusEl) {
     if (!targetDeviceId) {
       console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
       const dev = await findActiveSpotifyDevice(token);
+      if (dev && dev.noActiveDevice) {
+        setStatus(statusEl, 'Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — dann scanne erneut.', 'err');
+        return;
+      }
       if (dev && dev.id) {
         targetDeviceId = dev.id;
         targetDeviceName = dev.name;
@@ -1375,6 +1359,10 @@ async function playTrack(trackId, statusEl) {
     // If we already have a deviceId from SDK, try to get its name for display
     try {
       const dev = await findActiveSpotifyDevice(await getAccessToken());
+      if (dev && dev.noActiveDevice) {
+        setStatus(statusEl, 'Tipp: Starte kurz einen beliebigen Song in Spotify und pausiere ihn — dann scanne erneut.', 'err');
+        return;
+      }
       if (dev && dev.id === targetDeviceId) targetDeviceName = dev.name || null;
     } catch {}
     if (targetDeviceName) setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
@@ -1540,15 +1528,9 @@ async function initGame() {
   });
 
   console.log('🎵 INITIALIZING SPOTIFY PLAYER');
-  if (isIOS) {
-    console.log('⚠ iOS detected; skipping Web Playback SDK and using Spotify Connect fallback');
-    const scannerStatus = document.getElementById('scannerStatus');
-    setStatus(scannerStatus, 'Spotify App wird gesteuert — stelle sicher dass Spotify geöffnet ist', 'ok');
-  } else {
-    await initSpotifyPlayer(token).catch(e => {
-      console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
-    });
-  }
+  await initSpotifyPlayer(token).catch(e => {
+    console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
+  });
 
   if (listenersConfigured) {
     console.log('⚠ Listeners already configured');
