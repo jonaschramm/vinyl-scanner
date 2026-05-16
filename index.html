@@ -842,7 +842,7 @@
 const CLIENT_ID    = '54131291255648998a3815cef4f4b7de';
 const REDIRECT_URI = window.location.href.split('?')[0].split('#')[0];
 const SCOPES       = 'streaming user-read-email user-read-private user-modify-playback-state';
-const PASSWORD     = '1234';
+const PASSWORD     = 'paula';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN MANAGER
@@ -861,7 +861,9 @@ function showScreen(id) {
   const errEl  = document.getElementById('pwError');
 
   function attempt() {
-    if (input.value === PASSWORD) {
+    const entered = input.value.trim();
+    console.log('Eingegebenes Passwort:', entered);
+    if (entered === PASSWORD) {
       errEl.classList.remove('visible');
       input.classList.remove('error');
       showScreen('screen-connect');
