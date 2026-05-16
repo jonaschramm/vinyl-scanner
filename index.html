@@ -1095,7 +1095,7 @@ function handlePlayerStateChange(state) {
 // ─────────────────────────────────────────────────────────────────────────────
 function parseSpotifyTrackId(text) {
   const t = text.trim();
-  const m = t.match(/(?:https?:\/\/open\.spotify\.com\/track\/|spotify:track:)([A-Za-z0-9]{22})/i);
+  const m = t.match(/(?:https?:\/\/open\.spotify\.com\/track\/|spotify:track:)([A-Za-z0-9_-]{22})(?:\?.*)?$/i);
   return m ? m[1] : null;
 }
 
