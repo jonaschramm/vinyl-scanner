@@ -402,9 +402,9 @@
 
     #scanner-container {
       width: 100%;
-      height: 70vh;
+      height: 60vh;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
       background: #000;
       padding-bottom: env(safe-area-inset-bottom, 24px);
     }
@@ -430,7 +430,7 @@
       pointer-events: none;
     }
     .scan-frame {
-      width: min(70vw, 70vh);
+      width: min(60vw, 40vh);
       max-width: 100%;
       aspect-ratio: 1;
       position: absolute;
@@ -735,6 +735,9 @@
         placeholder="· · · ·"
         maxlength="20"
         autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
       />
     </div>
     <button class="pw-btn" id="pwSubmit">Enter ›</button>
@@ -1466,6 +1469,8 @@ let isScanning    = false;
 let scanPaused    = false;
 let lastScannedId = null;
 let listenersConfigured = false;
+const scanCanvas = document.createElement('canvas');
+const scanCtx = scanCanvas.getContext('2d');
 
 function logout() {
   console.log('🚪 LOGOUT INITIATED');
@@ -1620,7 +1625,16 @@ async function startCamera() {
     };
 
     await video.play();
-    if (video.readyState === 4) startScanning();
+    video.oncanplay = () => {
+      startScanning();
+      video.oncanplay = null;
+      video.onloadeddata = null;
+    };
+    video.onloadeddata = () => {
+      startScanning();
+      video.oncanplay = null;
+      video.onloadeddata = null;
+    };
   } catch (e) {
     setStatus(status, `Kamera-Fehler: ${e.message}`, 'err');
   }
@@ -1645,34 +1659,41 @@ function stopCamera() {
 }
 
 async function scanLoop() {
-  if (!isScanning || scanPaused) return;
+  const video = document.getElementById('cameraVideo');
+  if (!isScanning || !video) return;
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+    requestAnimationFrame(scanLoop);
+    return;
+  }
 
-  const video  = document.getElementById('cameraVideo');
-  const canvas = document.getElementById('cameraCanvas');
-  const ctx    = canvas.getContext('2d');
-  const status = document.getElementById('scannerStatus');
+  scanCanvas.width = video.videoWidth;
+  scanCanvas.height = video.videoHeight;
+  scanCtx.drawImage(video, 0, 0, scanCanvas.width, scanCanvas.height);
+  const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+  const code = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: 'dontInvert'
+  });
 
-  if (video.readyState === 4) {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-    const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
-
-    if (code?.data) {
-      const trackId = parseSpotifyTrackId(code.data);
-      if (trackId && trackId !== lastScannedId) {
-        lastScannedId = trackId;
-        scanPaused = true;
-        setTimeout(() => { scanPaused = false; }, 3000);
-        setStatus(status, 'QR erkannt! Starte Song…', 'ok');
-        await playTrack(trackId);
-        return;
-      }
-    }
+  if (code && code.data) {
+    console.log('QR erkannt:', code.data);
+    isScanning = false;
+    handleQRCode(code.data);
+    return;
   }
 
   requestAnimationFrame(scanLoop);
+}
+
+function handleQRCode(data) {
+  const trackId = parseSpotifyTrackId(data);
+  if (!trackId) {
+    console.warn('Ungültiger QR-Code:', data);
+    isScanning = true;
+    requestAnimationFrame(scanLoop);
+    return;
+  }
+  lastScannedId = trackId;
+  playTrack(trackId);
 }
 
 async function stopPlayback() {
