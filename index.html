@@ -403,14 +403,16 @@
     .scanner-viewport {
       position: relative;
       width: 100%;
-      min-height: 60vh;
+      height: 55vh;
       background: #000;
-      overflow: hidden;
+      overflow: visible;
       padding-bottom: env(safe-area-inset-bottom, 24px);
     }
     #cameraVideo {
+      display: block;
       width: 100%;
       height: 100%;
+      min-height: 50vh;
       object-fit: cover;
     }
     #cameraCanvas { display: none; }
@@ -583,6 +585,7 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 60vw;
     }
 
     .stop-btn {
@@ -810,11 +813,7 @@
     <button class="info-btn" id="songInfoBtn" style="display:none;margin-left:8px">ℹ️ Song Info</button>
   </div>
 
-  <div style="width:100%; max-width:540px; display:flex; gap:8px; justify-content:center; margin-top:0.5rem;">
-    <button class="stop-btn" id="stopBtnBottom">■ Stop</button>
-  </div>
-
-  <div id="songInfoContainer" style="width:100%; max-width:540px; display:flex; justify-content:center; margin-top:0.75rem;"></div>
+  <div id="songInfoContainer" style="width:100%; max-width:540px; display:none; justify-content:center; margin-top:0.75rem;"></div>
 
   <!-- Test section -->
   <div class="test-card">
@@ -1307,22 +1306,7 @@ async function playTrack(trackId) {
     console.log('Player State Status:', stateRes.status);
 
     if (stateRes.status === 204 || stateRes.status === 404) {
-      showError('Bitte Spotify öffnen und einen Song starten, dann hier nochmal versuchen.');
-      console.log('Kein aktives Gerät gefunden.');
-      return;
-    }
-
-    const state = await stateRes.json();
-    console.log('Aktiver Player State:', state);
-    console.log('Aktives Gerät:', state.device?.name, '| ID:', state.device?.id);
-
-    // Schritt 2: Play-Request OHNE device_id
-    const playRes = await fetch('https://api.spotify.com/v1/me/player/play', {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
+        showHint('Öffne Spotify kurz und starte einen Song — dann nochmal versuchen.');
       body: JSON.stringify({ uris: [`spotify:track:${trackId}`] })
     });
 
@@ -1331,13 +1315,18 @@ async function playTrack(trackId) {
     if (!playRes.ok) {
       const err = await playRes.json().catch(() => ({}));
       console.error('Play Fehler:', err);
-      showError(`Fehler ${playRes.status}: ${err?.error?.message || 'Unbekannter Fehler'}`);
+      if (playRes.status === 404) {
+        showHint('Öffne Spotify kurz und starte einen Song — dann nochmal versuchen.');
+      } else {
+        showError(`Fehler ${playRes.status}: ${err?.error?.message || 'Unbekannter Fehler'}`);
+      }
       return;
     }
 
     console.log('Playback erfolgreich gestartet.');
     showNowPlaying(state.device?.name);
-    // Show song info button and fetch track metadata
+    const hideContainer = document.getElementById('songInfoContainer');
+    if (hideContainer) { hideContainer.style.display = 'none'; hideContainer.classList.remove('visible'); }
     try {
       const infoBtn = document.getElementById('songInfoBtn');
       if (infoBtn) infoBtn.style.display = 'inline-block';
@@ -1354,6 +1343,13 @@ function showError(msg) {
   const testStatus = document.getElementById('testStatus');
   if (scannerStatus) setStatus(scannerStatus, msg, 'err');
   if (testStatus) setStatus(testStatus, msg, 'err');
+}
+
+function showHint(msg) {
+  const scannerStatus = document.getElementById('scannerStatus');
+  const testStatus = document.getElementById('testStatus');
+  if (scannerStatus) setStatus(scannerStatus, msg, '');
+  if (testStatus) setStatus(testStatus, msg, '');
 }
 
 function showNowPlaying(deviceName) {
@@ -1415,7 +1411,7 @@ function hideNowPlaying() {
   const testStatus = document.getElementById('testStatus');
   if (testStatus) { testStatus.textContent = ''; testStatus.className = 'test-status'; }
   const infoBtn = document.getElementById('songInfoBtn'); if (infoBtn) infoBtn.style.display = 'none';
-  const container = document.getElementById('songInfoContainer'); if (container) container.innerHTML = '';
+  const container = document.getElementById('songInfoContainer'); if (container) { container.innerHTML = ''; container.style.display = 'none'; container.classList.remove('visible'); }
 }
 
 function setStatus(el, text, type) {
@@ -1501,13 +1497,17 @@ async function initGame() {
   // camera
   document.getElementById('camStartBtn').addEventListener('click', startCamera);
   document.getElementById('stopBtn').addEventListener('click', stopPlayback);
-  const stopBottom = document.getElementById('stopBtnBottom'); if (stopBottom) stopBottom.addEventListener('click', stopPlayback);
-
   const songInfoBtn = document.getElementById('songInfoBtn');
   if (songInfoBtn) songInfoBtn.addEventListener('click', () => {
     const container = document.getElementById('songInfoContainer');
     if (!container) return;
-    container.classList.toggle('visible');
+    if (container.style.display === 'flex' || container.classList.contains('visible')) {
+      container.style.display = 'none';
+      container.classList.remove('visible');
+    } else {
+      container.style.display = 'flex';
+      container.classList.add('visible');
+    }
   });
 
   // logout
@@ -1562,15 +1562,26 @@ async function startCamera() {
       audio: false,
     });
     video.srcObject = cameraStream;
-    await video.play();
 
-    placeholder.style.display = 'none';
-    overlay.style.display     = 'flex';
-    badge.textContent          = 'Aktiv';
-    badge.classList.remove('inactive');
-    isScanning = true;
-    setStatus(status, 'Halte einen Spotify-QR-Code in den Rahmen.', '');
-    requestAnimationFrame(scanLoop);
+    const startScanning = () => {
+      if (isScanning) return;
+      placeholder.style.display = 'none';
+      overlay.style.display     = 'flex';
+      badge.textContent          = 'Aktiv';
+      badge.classList.remove('inactive');
+      isScanning = true;
+      scanPaused = false;
+      setStatus(status, 'Halte einen Spotify-QR-Code in den Rahmen.', '');
+      requestAnimationFrame(scanLoop);
+    };
+
+    video.onloadeddata = () => {
+      startScanning();
+      video.onloadeddata = null;
+    };
+
+    await video.play();
+    if (video.readyState === 4) startScanning();
   } catch (e) {
     setStatus(status, `Kamera-Fehler: ${e.message}`, 'err');
   }
@@ -1600,29 +1611,10 @@ async function scanLoop() {
   const ctx    = canvas.getContext('2d');
   const status = document.getElementById('scannerStatus');
 
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    // Draw only the visible (cropped) video area to canvas so jsQR scans what user sees
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const cw = video.clientWidth, ch = video.clientHeight;
-
-    // Set canvas to the displayed pixel size
-    canvas.width = cw;
-    canvas.height = ch;
-
-    let srcX = 0, srcY = 0, srcW = vw, srcH = vh;
-    if (vw / vh > cw / ch) {
-      // video is wider than container -> crop left/right
-      srcH = vh;
-      srcW = Math.round(vh * (cw / ch));
-      srcX = Math.round((vw - srcW) / 2);
-    } else {
-      // video is taller than container -> crop top/bottom
-      srcW = vw;
-      srcH = Math.round(vw * (ch / cw));
-      srcY = Math.round((vh - srcH) / 2);
-    }
-
-    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+  if (video.readyState === 4) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
     const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
 
@@ -1631,6 +1623,7 @@ async function scanLoop() {
       if (trackId && trackId !== lastScannedId) {
         lastScannedId = trackId;
         scanPaused = true;
+        setTimeout(() => { scanPaused = false; }, 3000);
         setStatus(status, 'QR erkannt! Starte Song…', 'ok');
         await playTrack(trackId);
         return;
