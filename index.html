@@ -832,7 +832,7 @@
 </section>
 
 <!-- ═══════════════════════════════ SCRIPTS ═════════════════════════════════ -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
 'use strict';
 
@@ -1321,7 +1321,19 @@ async function playTrack(trackId) {
     console.log('Player State Status:', stateRes.status);
 
     if (stateRes.status === 204 || stateRes.status === 404) {
-        showHint('Öffne Spotify kurz und starte einen Song — dann nochmal versuchen.');
+      showHint('Öffne Spotify kurz und starte einen Song — dann nochmal versuchen.');
+      return;
+    }
+
+    const state = await stateRes.json();
+    console.log('Aktueller Player-State', state);
+
+    const playRes = await fetch('https://api.spotify.com/v1/me/player/play', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({ uris: [`spotify:track:${trackId}`] })
     });
 
