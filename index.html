@@ -1040,12 +1040,16 @@ async function initSpotifyPlayer(token) {
 
   spotifyPlayer.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
+    console.log('Spotify Player ready', { deviceId });
     readyResolve(device_id);
   });
-  spotifyPlayer.addListener('not_ready', () => { deviceId = null; });
+  spotifyPlayer.addListener('not_ready', () => {
+    console.warn('Spotify Player not_ready');
+    deviceId = null;
+  });
   spotifyPlayer.addListener('player_state_changed', handlePlayerStateChange);
   spotifyPlayer.addListener('initialization_error', ({ message }) =>
-    console.error('Init error:', message));
+    console.error('Spotify init error:', message));
   spotifyPlayer.addListener('authentication_error', ({ message }) => {
     console.error('Auth error:', message);
     localStorage.removeItem('spotify_token');
@@ -1058,6 +1062,23 @@ async function initSpotifyPlayer(token) {
     readyPromise,
     new Promise(resolve => setTimeout(resolve, 8000)),
   ]);
+  console.log('Spotify Player connect completed', { deviceId });
+}
+
+async function transferPlaybackToDevice(token, device_id) {
+  console.log('Transferring playback to device', device_id);
+  const res = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ device_ids: [device_id], play: false }),
+  });
+
+  const body = await res.text().catch(() => '');
+  console.log('Device transfer response', { status: res.status, body });
+  return res.ok;
 }
 
 async function findActiveSpotifyDevice(token) {
@@ -1119,6 +1140,10 @@ async function playTrack(trackId, statusEl) {
       return;
     }
   }
+
+  console.log('Playing track on device', { trackId, deviceId });
+  await transferPlaybackToDevice(token, deviceId);
+
   setStatus(statusEl, 'Starte Wiedergabe…', '');
   try {
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
@@ -1136,6 +1161,7 @@ async function playTrack(trackId, statusEl) {
       setStatus(statusEl, 'Token abgelaufen. Bitte neu einloggen.', 'err');
     } else {
       const j = await res.json().catch(() => ({}));
+      console.error('Play request failed', { status: res.status, body: j });
       setStatus(statusEl, `Fehler: ${j.error?.message || res.status}`, 'err');
     }
   } catch (e) {
