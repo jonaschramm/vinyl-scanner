@@ -913,7 +913,28 @@ async function refreshSpotifyToken() {
 }
 
 async function getAccessToken() {
-  return getToken() || await refreshSpotifyToken();
+  const token = getToken();
+  if (token) {
+    console.log('✓ Using cached token', { 
+      token_length: token.length,
+      token_prefix: token.substring(0, 20) + '...' 
+    });
+    return token;
+  }
+
+  console.log('🔄 Token expired or missing, attempting refresh...');
+  const refreshed = await refreshSpotifyToken();
+  
+  if (refreshed) {
+    console.log('✓ Token refreshed successfully', {
+      token_length: refreshed.length,
+      token_prefix: refreshed.substring(0, 20) + '...'
+    });
+  } else {
+    console.error('✗ Token refresh failed - need to re-login');
+  }
+  
+  return refreshed;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1040,111 +1061,328 @@ async function initSpotifyPlayer(token) {
 
   spotifyPlayer.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
-    console.log('Spotify Player ready', { deviceId });
+    console.log('✓ SPOTIFY PLAYER READY', { 
+      device_id, 
+      timestamp: new Date().toISOString(),
+      token_available: !!token 
+    });
     readyResolve(device_id);
   });
   spotifyPlayer.addListener('not_ready', () => {
-    console.warn('Spotify Player not_ready');
+    console.warn('✗ SPOTIFY PLAYER NOT READY', { 
+      deviceId, 
+      timestamp: new Date().toISOString() 
+    });
     deviceId = null;
   });
   spotifyPlayer.addListener('player_state_changed', handlePlayerStateChange);
   spotifyPlayer.addListener('initialization_error', ({ message }) =>
-    console.error('Spotify init error:', message));
+    console.error('✗ SPOTIFY INIT ERROR:', message));
   spotifyPlayer.addListener('authentication_error', ({ message }) => {
-    console.error('Auth error:', message);
+    console.error('✗ SPOTIFY AUTH ERROR:', message);
     localStorage.removeItem('spotify_token');
   });
   spotifyPlayer.addListener('account_error', ({ message }) =>
-    console.error('Account error:', message));
+    console.error('✗ SPOTIFY ACCOUNT ERROR:', message));
 
   await spotifyPlayer.connect();
   await Promise.race([
     readyPromise,
     new Promise(resolve => setTimeout(resolve, 8000)),
   ]);
-  console.log('Spotify Player connect completed', { deviceId });
+  console.log('✓ SPOTIFY PLAYER CONNECT COMPLETED', { 
+    deviceId, 
+    ready: !!deviceId,
+    timestamp: new Date().toISOString()
+  });
 }
 
 async function transferPlaybackToDevice(token, device_id) {
-  console.log('Transferring playback to device', device_id);
-  const res = await fetch('https://api.spotify.com/v1/me/player', {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ device_ids: [device_id], play: false }),
+  console.log('📤 TRANSFER PLAYBACK TO DEVICE START', { 
+    device_id, 
+    token_type: typeof token,
+    token_length: token?.length,
+    timestamp: new Date().toISOString()
   });
 
-  const body = await res.text().catch(() => '');
-  console.log('Device transfer response', { status: res.status, body });
-  return res.ok;
+  const requestBody = { device_ids: [device_id], play: false };
+  console.log('📤 Transfer request body:', requestBody);
+
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const bodyText = await res.text();
+    const responseData = bodyText ? JSON.parse(bodyText).catch(() => ({ raw: bodyText })) : null;
+
+    console.log('📥 TRANSFER RESPONSE', { 
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      contentLength: res.headers.get('content-length'),
+      body: responseData || bodyText || '(empty)',
+      timestamp: new Date().toISOString()
+    });
+
+    if (!res.ok) {
+      console.warn('⚠ Transfer failed. Common causes:');
+      console.warn('  • 403 Forbidden = Kein Premium-Account');
+      console.warn('  • 404 Not Found = Ungültige device_id');
+      console.warn('  • 401 Unauthorized = Token abgelaufen');
+      return false;
+    }
+
+    console.log('✓ TRANSFER SUCCESS');
+    return true;
+  } catch (e) {
+    console.error('✗ TRANSFER NETWORK ERROR', { 
+      message: e.message,
+      stack: e.stack,
+      timestamp: new Date().toISOString()
+    });
+    return false;
+  }
 }
 
 async function findActiveSpotifyDevice(token) {
-  const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  console.log('📡 FINDING ACTIVE SPOTIFY DEVICE');
+  
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => ({}));
-  const devices = Array.isArray(data.devices) ? data.devices : [];
-  const activeDevice = devices.find(d => d.is_active) || devices[0];
-  return activeDevice?.id || null;
+    if (!res.ok) {
+      console.error('✗ DEVICES API FAILED', { 
+        status: res.status,
+        statusText: res.statusText 
+      });
+      return null;
+    }
+
+    const data = await res.json();
+    const devices = Array.isArray(data.devices) ? data.devices : [];
+
+    console.log('📡 DEVICES FOUND', {
+      count: devices.length,
+      devices: devices.map(d => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        is_active: d.is_active,
+        is_private_session: d.is_private_session,
+        is_restricted: d.is_restricted
+      }))
+    });
+
+    const activeDevice = devices.find(d => d.is_active);
+    if (activeDevice) {
+      console.log('✓ ACTIVE DEVICE FOUND', {
+        id: activeDevice.id,
+        name: activeDevice.name,
+        type: activeDevice.type
+      });
+      return activeDevice.id;
+    }
+
+    // If no active device, use first available
+    if (devices.length > 0) {
+      console.log('⚠ NO ACTIVE DEVICE, using first available:', {
+        id: devices[0].id,
+        name: devices[0].name,
+        type: devices[0].type
+      });
+      return devices[0].id;
+    }
+
+    console.error('✗ NO DEVICES AVAILABLE');
+    return null;
+  } catch (e) {
+    console.error('✗ DEVICE LOOKUP ERROR', {
+      message: e.message,
+      stack: e.stack
+    });
+    return null;
+  }
 }
 
 function handlePlayerStateChange(state) {
-  if (!state) return;
+  console.log('🎵 PLAYER STATE CHANGED', {
+    paused: state?.paused,
+    track: state?.track_window?.current_track?.name,
+    artist: state?.track_window?.current_track?.artists?.[0]?.name,
+    device: state?.device?.name,
+    position: state?.position,
+    duration: state?.track_window?.current_track?.duration_ms,
+    timestamp: new Date().toISOString()
+  });
+
+  if (!state) {
+    console.warn('⚠ State is null or undefined');
+    return;
+  }
+
   const track    = state.track_window?.current_track;
   const npEl     = document.getElementById('nowPlaying');
   const npTrack  = document.getElementById('npTrack');
   const npDisc   = document.getElementById('npDisc');
 
   if (track) {
+    console.log('✓ TRACK DETECTED', {
+      name: track.name,
+      artists: track.artists.map(a => a.name).join(', '),
+      duration_ms: track.duration_ms,
+      is_playable: track.is_playable
+    });
+
     npEl.classList.add('visible');
     npTrack.textContent = `${track.artists.map(a => a.name).join(', ')} – ${track.name}`;
+    
     if (!state.paused) {
+      console.log('▶ NOW PLAYING');
       npDisc.classList.add('playing');
     } else {
+      console.log('⏸ PAUSED');
       npDisc.classList.remove('playing');
     }
+  } else {
+    console.warn('⚠ NO TRACK IN STATE');
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PLAY TRACK
+// DEBUGGING GUIDE
+// ─────────────────────────────────────────────────────────────────────────────
+// Öffne die Browser-Konsole mit F12 → Console
+// Kopiere die folgende Gruppe für vollständiges Debugging:
+//
+// DEBUGGING CHECKLIST:
+// 1. Warte bis du "✓ SPOTIFY PLAYER READY" siehst (device_id sollte angezeigt werden)
+// 2. Versuche einen Song abzuspielen (über Test-Link oben)
+// 3. Suche nach den folgenden Log-Sequenzen:
+//    - "🎵 PLAY TRACK INITIATED" - Song-Play wurde gestartet
+//    - "✓ TOKEN OBTAINED" - Token ist vorhanden
+//    - "📤 STEP 1: TRANSFER PLAYBACK" - Transfer zu Gerät wird gemacht
+//    - "📥 TRANSFER RESPONSE" - HTTP-Status sollte 204 oder 200 sein
+//    - "📤 STEP 2: SEND PLAY REQUEST" - Play-Request wird versendet
+//    - "📥 PLAY RESPONSE" - HTTP-Status sollte 204 sein
+//    - "✓ PLAY SUCCESS" - Fertig!
+//
+// HÄUFIGE FEHLER:
+// - 403 Forbidden = Kein Premium-Account (Web Playback SDK benötigt Premium)
+// - 404 Not Found = device_id ist ungültig oder verloren
+// - 401 Unauthorized = Token abgelaufen (refresh durchführen)
+// - Keine device_id = Web Player nicht initialisiert oder wird überschrieben
+// 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('%c🎵 MOCKSTER DEBUG MODE ENABLED %c', 'background:#1db954;color:#fff;padding:8px;border-radius:4px;font-weight:bold', '');
+console.log('%cÖffne die Browser-Konsole (F12) und suche nach den Logs oben ↑', 'color:#1db954;font-weight:bold;font-size:12px');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAY TRACK PARSING
 // ─────────────────────────────────────────────────────────────────────────────
 function parseSpotifyTrackId(text) {
   const t = text.trim();
   const m = t.match(/(?:https?:\/\/open\.spotify\.com\/track\/|spotify:track:)([A-Za-z0-9_-]{22})(?:\?.*)?$/i);
-  return m ? m[1] : null;
+  
+  if (m) {
+    console.log('✓ TRACK ID PARSED', {
+      input: t.substring(0, 50) + (t.length > 50 ? '...' : ''),
+      trackId: m[1]
+    });
+    return m[1];
+  }
+
+  console.warn('✗ INVALID SPOTIFY LINK FORMAT', {
+    input: t,
+    expected_formats: [
+      'https://open.spotify.com/track/XXXXX',
+      'spotify:track:XXXXX'
+    ]
+  });
+  return null;
 }
 
 async function playTrack(trackId, statusEl) {
+  console.log('🎵 PLAY TRACK INITIATED', { 
+    trackId, 
+    timestamp: new Date().toISOString()
+  });
+
   const token = await getAccessToken();
   if (!token) {
+    console.error('✗ NO TOKEN AVAILABLE');
     setStatus(statusEl, 'Token abgelaufen. Bitte neu verbinden.', 'err');
     return;
   }
+
+  console.log('✓ TOKEN OBTAINED', { 
+    token_length: token?.length,
+    token_prefix: token?.substring(0, 20) + '...'
+  });
+
+  // Check if device is ready
   if (!deviceId) {
+    console.warn('⚠ NO DEVICE ID YET', { 
+      deviceId, 
+      trying_to_find: true
+    });
     setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
     await new Promise(r => setTimeout(r, 1500));
+    
     if (!deviceId) {
+      console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
       deviceId = await findActiveSpotifyDevice(token);
       if (deviceId) {
+        console.log('✓ FOUND ACTIVE DEVICE', { deviceId });
         setStatus(statusEl, 'Nutze aktives Spotify-Gerät.', 'ok');
       }
     }
+
     if (!deviceId) {
+      console.error('✗ NO DEVICE FOUND', { 
+        timestamp: new Date().toISOString(),
+        help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
+      });
       setStatus(statusEl, 'Gerät nicht gefunden. Öffne Spotify oder warte auf den Web-Player.', 'err');
       return;
     }
   }
 
-  console.log('Playing track on device', { trackId, deviceId });
-  await transferPlaybackToDevice(token, deviceId);
+  console.log('🎵 READY TO PLAY', { 
+    trackId,
+    deviceId,
+    timestamp: new Date().toISOString()
+  });
 
+  // Step 1: Transfer playback
+  console.log('📤 STEP 1: TRANSFER PLAYBACK');
+  const transferOk = await transferPlaybackToDevice(token, deviceId);
+  
+  if (!transferOk) {
+    console.error('✗ TRANSFER FAILED - SKIPPING PLAY');
+    setStatus(statusEl, 'Fehler: Gerät konnte nicht aktiviert werden. Öffne Spotify.', 'err');
+    return;
+  }
+
+  // Small delay to ensure device is active
+  await new Promise(r => setTimeout(r, 300));
+
+  // Step 2: Play track
+  console.log('📤 STEP 2: SEND PLAY REQUEST');
   setStatus(statusEl, 'Starte Wiedergabe…', '');
+
+  const playRequestBody = { 
+    uris: [`spotify:track:${trackId}`] 
+  };
+  console.log('📤 Play request:', playRequestBody);
+
   try {
     const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
       method:  'PUT',
@@ -1152,19 +1390,56 @@ async function playTrack(trackId, statusEl) {
         Authorization:  `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ uris: [`spotify:track:${trackId}`] }),
+      body: JSON.stringify(playRequestBody),
     });
+
+    const responseText = await res.text();
+    let responseBody;
+    try {
+      responseBody = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      responseBody = { raw_body: responseText };
+    }
+
+    console.log('📥 PLAY RESPONSE', { 
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      headers: {
+        contentType: res.headers.get('content-type'),
+        contentLength: res.headers.get('content-length')
+      },
+      body: responseBody || '(empty)',
+      timestamp: new Date().toISOString()
+    });
+
     if (res.status === 204 || res.ok) {
+      console.log('✓ PLAY SUCCESS - SONG SHOULD BE PLAYING NOW');
       setStatus(statusEl, '▶ Wiedergabe gestartet.', 'ok');
     } else if (res.status === 401) {
+      console.error('✗ 401 UNAUTHORIZED - Token expired');
       localStorage.removeItem('spotify_token');
       setStatus(statusEl, 'Token abgelaufen. Bitte neu einloggen.', 'err');
+    } else if (res.status === 403) {
+      console.error('✗ 403 FORBIDDEN - Likely no Premium account');
+      setStatus(statusEl, 'Fehler: Kein Spotify Premium Account. Web Playback benötigt Premium.', 'err');
+    } else if (res.status === 404) {
+      console.error('✗ 404 NOT FOUND - Device or track not found');
+      setStatus(statusEl, 'Fehler: Gerät oder Song nicht gefunden.', 'err');
     } else {
-      const j = await res.json().catch(() => ({}));
-      console.error('Play request failed', { status: res.status, body: j });
-      setStatus(statusEl, `Fehler: ${j.error?.message || res.status}`, 'err');
+      console.error('✗ PLAY FAILED', { 
+        status: res.status,
+        body: responseBody
+      });
+      const errorMsg = responseBody?.error?.message || `HTTP ${res.status}`;
+      setStatus(statusEl, `Fehler: ${errorMsg}`, 'err');
     }
   } catch (e) {
+    console.error('✗ PLAY REQUEST NETWORK ERROR', { 
+      message: e.message,
+      stack: e.stack,
+      timestamp: new Date().toISOString()
+    });
     setStatus(statusEl, `Netzwerkfehler: ${e.message}`, 'err');
   }
 }
@@ -1204,12 +1479,33 @@ function logout() {
 }
 
 async function initGame() {
-  const token = await getAccessToken();
-  if (!token) { showScreen('screen-connect'); return; }
-  await initSpotifyPlayer(token).catch(console.error);
+  console.log('🎮 INIT GAME START', { 
+    timestamp: new Date().toISOString()
+  });
 
-  if (listenersConfigured) return;
+  const token = await getAccessToken();
+  if (!token) { 
+    console.error('✗ NO TOKEN IN INIT GAME');
+    showScreen('screen-connect'); 
+    return; 
+  }
+
+  console.log('✓ TOKEN ACQUIRED FOR GAME INIT', {
+    token_length: token?.length
+  });
+
+  console.log('🎵 INITIALIZING SPOTIFY PLAYER');
+  await initSpotifyPlayer(token).catch(e => {
+    console.error('✗ SPOTIFY PLAYER INIT FAILED:', e);
+  });
+
+  if (listenersConfigured) {
+    console.log('⚠ Listeners already configured');
+    return;
+  }
   listenersConfigured = true;
+
+  console.log('🎮 CONFIGURING GAME LISTENERS');
 
   // camera
   document.getElementById('camStartBtn').addEventListener('click', startCamera);
@@ -1223,6 +1519,8 @@ async function initGame() {
     const val     = document.getElementById('testInput').value;
     const status  = document.getElementById('testStatus');
 
+    console.log('🎵 TEST PLAY BUTTON CLICKED', { input: val });
+
     if (!val.trim()) {
       setStatus(status, 'Bitte Spotify-Link einfügen, bevor du auf Play klickst.', 'err');
       return;
@@ -1230,15 +1528,22 @@ async function initGame() {
 
     const trackId = parseSpotifyTrackId(val);
     if (!trackId) {
+      console.error('✗ INVALID SPOTIFY LINK', { input: val });
       setStatus(status, 'Ungültiger Spotify-Link. Bitte vollständige Track-URL einfügen.', 'err');
       return;
     }
 
+    console.log('✓ VALID TRACK ID PARSED', { trackId });
     await playTrack(trackId, status);
   });
   document.getElementById('testInput').addEventListener('keydown', async e => {
-    if (e.key === 'Enter') document.getElementById('testPlayBtn').click();
+    if (e.key === 'Enter') {
+      console.log('Enter key pressed in test input');
+      document.getElementById('testPlayBtn').click();
+    }
   });
+
+  console.log('✓ GAME INIT COMPLETE');
 }
 
 async function startCamera() {
