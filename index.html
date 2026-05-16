@@ -406,6 +406,7 @@
       aspect-ratio: 1;
       background: #000;
       overflow: hidden;
+      padding-bottom: env(safe-area-inset-bottom, 20px);
     }
     #cameraVideo {
       width: 100%;
@@ -469,6 +470,7 @@
       justify-content: center;
       background: rgba(10,10,15,0.9);
       gap: 0.75rem;
+      padding-bottom: calc(env(safe-area-inset-bottom, 20px) + 12px);
     }
     .scan-placeholder p {
       font-size: 0.8rem;
@@ -491,6 +493,8 @@
       font-family: var(--font-mono);
       letter-spacing: 0.1em;
       transition: transform 0.15s;
+      position: relative;
+      z-index: 10010;
     }
     .cam-start-btn:hover { transform: scale(1.03); }
 
@@ -1189,6 +1193,7 @@ async function findActiveSpotifyDevice(token) {
       }))
     });
 
+    // Prefer the currently active device
     const activeDevice = devices.find(d => d.is_active);
     if (activeDevice) {
       console.log('✓ ACTIVE DEVICE FOUND', {
@@ -1196,7 +1201,7 @@ async function findActiveSpotifyDevice(token) {
         name: activeDevice.name,
         type: activeDevice.type
       });
-      return activeDevice.id;
+      return activeDevice; // return full device object
     }
 
     // If no active device, use first available
@@ -1206,63 +1211,7 @@ async function findActiveSpotifyDevice(token) {
         name: devices[0].name,
         type: devices[0].type
       });
-      return devices[0].id;
-    }
-
-    console.error('✗ NO DEVICES AVAILABLE');
-    return null;
-  } catch (e) {
-    console.error('✗ DEVICE LOOKUP ERROR', {
-      message: e.message,
-      stack: e.stack
-    });
-    return null;
-  }
-}
-
-async function findNonMocksterDevice(token) {
-  console.log('📡 FINDING NON-MOCKSTER SPOTIFY DEVICE');
-  
-  try {
-    const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) {
-      console.error('✗ DEVICES API FAILED', { 
-        status: res.status,
-        statusText: res.statusText 
-      });
-      return null;
-    }
-
-    const data = await res.json();
-    const devices = Array.isArray(data.devices) ? data.devices : [];
-
-    console.log('📡 DEVICES FOUND', {
-      count: devices.length,
-      devices: devices.map(d => ({
-        id: d.id,
-        name: d.name,
-        type: d.type,
-        is_active: d.is_active,
-        is_private_session: d.is_private_session,
-        is_restricted: d.is_restricted
-      }))
-    });
-
-    const preferred = devices.find(d => d.name && !d.name.toLowerCase().includes('mockster audio'));
-    if (preferred) {
-      console.log('✓ NON-MOCKSTER DEVICE FOUND', { id: preferred.id, name: preferred.name });
-      return preferred.id;
-    }
-
-    if (devices.length > 0) {
-      console.warn('⚠ No non-Mockster device found; using first available device', {
-        id: devices[0].id,
-        name: devices[0].name
-      });
-      return devices[0].id;
+      return devices[0];
     }
 
     console.error('✗ NO DEVICES AVAILABLE');
@@ -1392,46 +1341,43 @@ async function playTrack(trackId, statusEl) {
   });
 
   let targetDeviceId = deviceId;
+  let targetDeviceName = null;
 
-  if (isIOS) {
-    setStatus(statusEl, 'Spotify App wird gesteuert — stelle sicher dass Spotify geöffnet ist', 'ok');
-    console.log('📡 iOS playback fallback active');
-
-    targetDeviceId = await findNonMocksterDevice(token);
+  // Always prefer the currently active Spotify device (regardless of platform)
+  if (!targetDeviceId) {
+    console.warn('⚠ NO DEVICE ID YET', { 
+      deviceId: targetDeviceId, 
+      trying_to_find: true
+    });
+    setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
+    await new Promise(r => setTimeout(r, 1500));
+    
     if (!targetDeviceId) {
-      console.error('✗ NO IOS DEVICE FOUND');
-      setStatus(statusEl, 'Konnte kein iPhone-Gerät finden. Öffne Spotify auf deinem iPhone.', 'err');
+      console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
+      const dev = await findActiveSpotifyDevice(token);
+      if (dev && dev.id) {
+        targetDeviceId = dev.id;
+        targetDeviceName = dev.name;
+        console.log('✓ FOUND ACTIVE DEVICE', { deviceId: targetDeviceId, name: targetDeviceName });
+        setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
+      }
+    }
+
+    if (!targetDeviceId) {
+      console.error('✗ NO DEVICE FOUND', { 
+        timestamp: new Date().toISOString(),
+        help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
+      });
+      setStatus(statusEl, 'Kein Spotify-Gerät gefunden. Öffne die Spotify App und starte kurz einen Song.', 'err');
       return;
     }
-
-    console.log('✓ IOS DEVICE SELECTED', { deviceId: targetDeviceId });
   } else {
-    if (!targetDeviceId) {
-      console.warn('⚠ NO DEVICE ID YET', { 
-        deviceId: targetDeviceId, 
-        trying_to_find: true
-      });
-      setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
-      await new Promise(r => setTimeout(r, 1500));
-      
-      if (!targetDeviceId) {
-        console.log('📡 SEARCHING FOR ACTIVE SPOTIFY DEVICE');
-        targetDeviceId = await findActiveSpotifyDevice(token);
-        if (targetDeviceId) {
-          console.log('✓ FOUND ACTIVE DEVICE', { deviceId: targetDeviceId });
-          setStatus(statusEl, 'Nutze aktives Spotify-Gerät.', 'ok');
-        }
-      }
-
-      if (!targetDeviceId) {
-        console.error('✗ NO DEVICE FOUND', { 
-          timestamp: new Date().toISOString(),
-          help: 'Öffne Spotify auf dem iPhone/Desktop oder nutze den Web-Player'
-        });
-        setStatus(statusEl, 'Gerät nicht gefunden. Öffne Spotify oder warte auf den Web-Player.', 'err');
-        return;
-      }
-    }
+    // If we already have a deviceId from SDK, try to get its name for display
+    try {
+      const dev = await findActiveSpotifyDevice(await getAccessToken());
+      if (dev && dev.id === targetDeviceId) targetDeviceName = dev.name || null;
+    } catch {}
+    if (targetDeviceName) setStatus(statusEl, `Spielt auf: ${targetDeviceName}`, 'ok');
   }
 
   console.log('🎵 READY TO PLAY', { 
