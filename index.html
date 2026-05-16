@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mockster</title>
+  <title>Hitsterli für Paulali</title>
   <style>
     /* ── Reset & Base ───────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,7 +12,7 @@
       --bg:        #0a0a0f;
       --surface:   #13131a;
       --border:    #2a2a38;
-      --accent:    #1db954;
+      --accent:    #1a73e8;
       --accent2:   #e8205a;
       --text:      #e8ecef;
       --muted:     #6b7280;
@@ -187,7 +187,7 @@
     }
     .pw-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(29,185,84,0.15);
+      box-shadow: 0 0 0 3px rgba(26,115,232,0.15);
     }
     .pw-input.error {
       border-color: var(--accent2);
@@ -210,7 +210,7 @@
       transition: transform 0.15s, box-shadow 0.15s;
       margin-top: 0.5rem;
     }
-    .pw-btn:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(29,185,84,0.35); }
+    .pw-btn:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(26,115,232,0.35); }
     .pw-btn:active { transform: scale(0.98); }
 
     .pw-error {
@@ -310,7 +310,7 @@
       transition: transform 0.15s, box-shadow 0.15s;
       letter-spacing: 0.05em;
     }
-    .connect-btn:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(29,185,84,0.35); }
+    .connect-btn:hover { transform: scale(1.02); box-shadow: 0 4px 20px rgba(26,115,232,0.35); }
     .connect-btn:active { transform: scale(0.98); }
 
     .connect-status {
@@ -389,7 +389,7 @@
     .scanner-badge {
       font-size: 0.65rem;
       font-family: var(--font-mono);
-      background: rgba(29,185,84,0.15);
+      background: rgba(26,115,232,0.15);
       color: var(--accent);
       border-radius: 999px;
       padding: 0.2rem 0.6rem;
@@ -403,9 +403,10 @@
     .scanner-viewport {
       position: relative;
       width: 100%;
-      aspect-ratio: 1;
+      min-height: 60vh;
       background: #000;
       overflow: hidden;
+      padding-bottom: env(safe-area-inset-bottom, 24px);
     }
     #cameraVideo {
       width: 100%;
@@ -423,13 +424,13 @@
       pointer-events: none;
     }
     .scan-frame {
-      width: min(65vw, 65vh);
-      max-width: 65vw;
+      width: min(70vw, 70vh);
+      max-width: 100%;
       aspect-ratio: 1;
       position: absolute;
-      top: 15vh;
+      top: 50%;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, -50%);
     }
     .scan-frame::before, .scan-frame::after,
     .scan-frame > span::before, .scan-frame > span::after {
@@ -554,7 +555,7 @@
       flex-shrink: 0;
       animation: spin 4s linear infinite;
       animation-play-state: paused;
-      box-shadow: 0 0 12px rgba(29,185,84,0.3);
+      box-shadow: 0 0 12px rgba(26,115,232,0.3);
     }
     .np-disc.playing { animation-play-state: running; }
     .np-disc::after {
@@ -658,6 +659,41 @@
     .test-status.ok  { color: var(--accent); }
     .test-status.err { color: var(--accent2); }
 
+    .info-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      border-radius: 8px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .song-info-card {
+      display: flex;
+      gap: 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      align-items: center;
+      color: var(--text);
+      width: 100%;
+      max-width: 540px;
+    }
+    .song-info-cover {
+      width: 120px;
+      height: 120px;
+      border-radius: 8px;
+      background: #222;
+      flex-shrink: 0;
+      object-fit: cover;
+    }
+    .song-info-meta { min-width: 0; }
+    .song-info-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
+    .song-info-artist { color: var(--muted); margin-bottom: 0.25rem; }
+    .song-info-year { color: var(--muted); font-size: 0.85rem; }
+
     /* ── Spinner util ─────────────────────────────────────────────── */
     .spinner {
       display: inline-block;
@@ -703,7 +739,7 @@
   <div class="connect-card">
     <!-- Spotify logo SVG -->
     <svg class="spotify-icon" viewBox="0 0 168 168" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="84" cy="84" r="84" fill="#1DB954"/>
+      <circle cx="84" cy="84" r="84" fill="#1a73e8"/>
       <path d="M120.1 118.3c-1.7 2.8-5.2 3.7-8 2-21.9-13.4-49.6-16.4-82.1-9-3.2.7-6.4-1.3-7.1-4.5-.7-3.2 1.3-6.4 4.5-7.1 35.6-8.1 66.1-4.7 90.8 10.4 2.8 1.7 3.7 5.2 1.9 8.2zm11.9-25.7c-2.1 3.5-6.6 4.5-10.1 2.4-25.1-15.4-63.3-19.9-92.9-10.9-3.8 1.2-7.9-.9-9.1-4.8-1.2-3.8.9-7.9 4.8-9.1 33.9-10.3 76.1-5.3 104.9 12.4 3.4 2.1 4.5 6.6 2.4 10zm1-26.3c-30.1-17.9-79.8-19.5-108.6-10.8-4.6 1.4-9.5-1.2-10.9-5.8-1.4-4.6 1.2-9.5 5.8-10.9 33-10 87.9-8.1 122.6 12.5 4.1 2.4 5.4 7.7 3 11.8-2.4 4.1-7.7 5.5-11.9 3.2z" fill="white"/>
     </svg>
 
@@ -731,7 +767,7 @@
 <!-- ════════════════════════════ SCREEN 3: GAME ═════════════════════════════ -->
 <section id="screen-game" class="screen">
   <div class="game-header">
-    <div class="game-title">Mockster</div>
+    <div class="game-title">Hitsterli für Paulali</div>
     <button class="logout-btn" id="logoutBtn">Logout</button>
   </div>
 
@@ -771,7 +807,14 @@
       <div class="np-track" id="npTrack">—</div>
     </div>
     <button class="stop-btn" id="stopBtn">■ Stop</button>
+    <button class="info-btn" id="songInfoBtn" style="display:none;margin-left:8px">ℹ️ Song Info</button>
   </div>
+
+  <div style="width:100%; max-width:540px; display:flex; gap:8px; justify-content:center; margin-top:0.5rem;">
+    <button class="stop-btn" id="stopBtnBottom">■ Stop</button>
+  </div>
+
+  <div id="songInfoContainer" style="width:100%; max-width:540px; display:flex; justify-content:center; margin-top:0.75rem;"></div>
 
   <!-- Test section -->
   <div class="test-card">
@@ -1057,7 +1100,7 @@ async function getAccessToken() {
 
 // Web Playback SDK disabled: using Spotify Connect via Web API only.
 // Removed window.onSpotifyWebPlaybackSDKReady, loadSpotifySDK and initSpotifyPlayer to avoid
-// the browser registering as an active device ("Mockster Audio").
+// the browser registering as an active device ("Hitsterli Audio").
 let deviceId = null;
 
 async function transferPlaybackToDevice(token, device_id) {
@@ -1217,8 +1260,8 @@ function handlePlayerStateChange(state) {
 // - Keine device_id = Web Player nicht initialisiert oder wird überschrieben
 // 
 // ─────────────────────────────────────────────────────────────────────────────
-console.log('%c🎵 MOCKSTER DEBUG MODE ENABLED %c', 'background:#1db954;color:#fff;padding:8px;border-radius:4px;font-weight:bold', '');
-console.log('%cÖffne die Browser-Konsole (F12) und suche nach den Logs oben ↑', 'color:#1db954;font-weight:bold;font-size:12px');
+console.log('%c🎵 HITSTERLI DEBUG MODE ENABLED %c', 'background:#1a73e8;color:#fff;padding:8px;border-radius:4px;font-weight:bold', '');
+console.log('%cÖffne die Browser-Konsole (F12) und suche nach den Logs oben ↑', 'color:#1a73e8;font-weight:bold;font-size:12px');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PLAY TRACK PARSING
@@ -1294,6 +1337,12 @@ async function playTrack(trackId) {
 
     console.log('Playback erfolgreich gestartet.');
     showNowPlaying(state.device?.name);
+    // Show song info button and fetch track metadata
+    try {
+      const infoBtn = document.getElementById('songInfoBtn');
+      if (infoBtn) infoBtn.style.display = 'inline-block';
+      fetchSongInfo(trackId);
+    } catch (e) { console.warn('Could not fetch song info', e); }
   } catch (e) {
     console.error('✗ PLAY ERROR', e);
     showError(`Netzwerkfehler: ${e.message}`);
@@ -1311,6 +1360,62 @@ function showNowPlaying(deviceName) {
   const scannerStatus = document.getElementById('scannerStatus');
   const displayName = deviceName || 'Spotify';
   if (scannerStatus) setStatus(scannerStatus, `Spielt auf: ${displayName}`, 'ok');
+  const npEl = document.getElementById('nowPlaying');
+  if (npEl) npEl.classList.add('visible');
+}
+
+async function fetchSongInfo(trackId) {
+  const token = await getAccessToken();
+  if (!token) return;
+  try {
+    const res = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const track = await res.json();
+    const title = track.name;
+    const artist = track.artists.map(a => a.name).join(', ');
+    const year = (track.album.release_date || '').substring(0,4);
+    const cover = track.album.images?.[0]?.url || '';
+
+    // Update now-playing track text
+    const npTrack = document.getElementById('npTrack');
+    if (npTrack) npTrack.textContent = `${artist} – ${title}`;
+    const npDisc = document.getElementById('npDisc');
+    if (npDisc) npDisc.classList.add('playing');
+
+    showSongInfo({ title, artist, year, cover });
+  } catch (e) {
+    console.error('✗ FETCH SONG INFO ERROR', e);
+  }
+}
+
+function showSongInfo({ title, artist, year, cover }) {
+  const container = document.getElementById('songInfoContainer');
+  if (!container) return;
+  container.innerHTML = `
+    <div class="song-info-card">
+      <img src="${cover || ''}" alt="cover" class="song-info-cover" />
+      <div class="song-info-meta">
+        <div class="song-info-title">${title || '–'}</div>
+        <div class="song-info-artist">${artist || '–'}</div>
+        <div class="song-info-year">${year || '–'}</div>
+      </div>
+    </div>
+  `;
+}
+
+function hideNowPlaying() {
+  const npEl = document.getElementById('nowPlaying');
+  if (npEl) npEl.classList.remove('visible');
+  const npDisc = document.getElementById('npDisc');
+  if (npDisc) npDisc.classList.remove('playing');
+  const testInput = document.getElementById('testInput');
+  if (testInput) { testInput.value = ''; testInput.focus(); }
+  const testStatus = document.getElementById('testStatus');
+  if (testStatus) { testStatus.textContent = ''; testStatus.className = 'test-status'; }
+  const infoBtn = document.getElementById('songInfoBtn'); if (infoBtn) infoBtn.style.display = 'none';
+  const container = document.getElementById('songInfoContainer'); if (container) container.innerHTML = '';
 }
 
 function setStatus(el, text, type) {
@@ -1396,6 +1501,14 @@ async function initGame() {
   // camera
   document.getElementById('camStartBtn').addEventListener('click', startCamera);
   document.getElementById('stopBtn').addEventListener('click', stopPlayback);
+  const stopBottom = document.getElementById('stopBtnBottom'); if (stopBottom) stopBottom.addEventListener('click', stopPlayback);
+
+  const songInfoBtn = document.getElementById('songInfoBtn');
+  if (songInfoBtn) songInfoBtn.addEventListener('click', () => {
+    const container = document.getElementById('songInfoContainer');
+    if (!container) return;
+    container.classList.toggle('visible');
+  });
 
   // logout
   document.getElementById('logoutBtn').addEventListener('click', logout);
@@ -1488,9 +1601,28 @@ async function scanLoop() {
   const status = document.getElementById('scannerStatus');
 
   if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
+    // Draw only the visible (cropped) video area to canvas so jsQR scans what user sees
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const cw = video.clientWidth, ch = video.clientHeight;
+
+    // Set canvas to the displayed pixel size
+    canvas.width = cw;
+    canvas.height = ch;
+
+    let srcX = 0, srcY = 0, srcW = vw, srcH = vh;
+    if (vw / vh > cw / ch) {
+      // video is wider than container -> crop left/right
+      srcH = vh;
+      srcW = Math.round(vh * (cw / ch));
+      srcX = Math.round((vw - srcW) / 2);
+    } else {
+      // video is taller than container -> crop top/bottom
+      srcW = vw;
+      srcH = Math.round(vw * (ch / cw));
+      srcY = Math.round((vh - srcH) / 2);
+    }
+
+    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
     const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' });
 
@@ -1536,34 +1668,10 @@ async function stopPlayback() {
   
   // Also use SDK pause as fallback
   // SDK disabled — no SDK pause fallback.
-  
-  // Hide now-playing UI
-  const npEl = document.getElementById('nowPlaying');
-  if (npEl) {
-    console.log('Hiding now-playing UI');
-    npEl.classList.remove('visible');
-  }
-  
-  // Stop disc animation
-  const npDisc = document.getElementById('npDisc');
-  if (npDisc) {
-    npDisc.classList.remove('playing');
-  }
-  
-  // Clear test input for new track
-  const testInput = document.getElementById('testInput');
-  if (testInput) {
-    testInput.value = '';
-    testInput.focus();
-  }
-  
-  // Clear test status
-  const testStatus = document.getElementById('testStatus');
-  if (testStatus) {
-    testStatus.textContent = '';
-    testStatus.className = 'test-status';
-  }
-  
+
+  // Hide now-playing UI and related info
+  hideNowPlaying();
+
   console.log('✓ STOP PLAYBACK COMPLETE');
 }
 </script>
