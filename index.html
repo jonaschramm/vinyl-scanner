@@ -718,8 +718,8 @@
   </div>
 
   <div class="pw-card">
-    <div class="pw-logo">Mock<span>ster</span></div>
-    <div class="pw-tagline">— Guess The Track —</div>
+    <div class="pw-logo">HITSTERLI FÜR PAULALI</div>
+    <div class="pw-tagline">Dein Passwort eingeben, um weiterzumachen</div>
 
     <div class="pw-label">Access Code</div>
     <div class="pw-input-wrap">
@@ -842,12 +842,13 @@
 const CLIENT_ID    = '54131291255648998a3815cef4f4b7de';
 const REDIRECT_URI = window.location.href.split('?')[0].split('#')[0];
 const SCOPES       = 'streaming user-read-email user-read-private user-modify-playback-state';
-const PASSWORD     = 'paula';
+const PASSWORD     = 'paulali';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 function showScreen(id) {
+  console.log('showScreen called with:', id);
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
@@ -862,12 +863,15 @@ function showScreen(id) {
 
   function attempt() {
     const entered = input.value.trim();
+    console.log('Passwort-Versuch gestartet');
     console.log('Eingegebenes Passwort:', entered);
     if (entered === PASSWORD) {
+      console.log('Passwort korrekt, wechsle zu screen-connect');
       errEl.classList.remove('visible');
       input.classList.remove('error');
       showScreen('screen-connect');
     } else {
+      console.log('Passwort falsch, bleibe auf screen-password');
       input.classList.add('error');
       errEl.classList.add('visible');
       input.classList.add('shake');
