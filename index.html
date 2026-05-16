@@ -1371,8 +1371,9 @@ async function playTrack(trackId, statusEl) {
     return;
   }
 
-  // Small delay to ensure device is active
-  await new Promise(r => setTimeout(r, 300));
+  // Critical delay: Spotify needs 800ms to fully register device as active
+  console.log('⏳ Waiting 800ms for Spotify to register device as active...');
+  await new Promise(r => setTimeout(r, 800));
 
   // Step 2: Play track
   console.log('📤 STEP 2: SEND PLAY REQUEST');
@@ -1415,24 +1416,24 @@ async function playTrack(trackId, statusEl) {
 
     if (res.status === 204 || res.ok) {
       console.log('✓ PLAY SUCCESS - SONG SHOULD BE PLAYING NOW');
-      setStatus(statusEl, '▶ Wiedergabe gestartet.', 'ok');
+      setStatus(statusEl, '▶ Wiedergabe gestartet. API Response: 204', 'ok');
     } else if (res.status === 401) {
       console.error('✗ 401 UNAUTHORIZED - Token expired');
       localStorage.removeItem('spotify_token');
-      setStatus(statusEl, 'Token abgelaufen. Bitte neu einloggen.', 'err');
+      setStatus(statusEl, 'API Response: 401 – Token abgelaufen. Bitte neu einloggen.', 'err');
     } else if (res.status === 403) {
       console.error('✗ 403 FORBIDDEN - Likely no Premium account');
-      setStatus(statusEl, 'Fehler: Kein Spotify Premium Account. Web Playback benötigt Premium.', 'err');
+      setStatus(statusEl, 'API Response: 403 – Kein Spotify Premium Account erforderlich.', 'err');
     } else if (res.status === 404) {
       console.error('✗ 404 NOT FOUND - Device or track not found');
-      setStatus(statusEl, 'Fehler: Gerät oder Song nicht gefunden.', 'err');
+      setStatus(statusEl, 'API Response: 404 – Gerät oder Song nicht gefunden.', 'err');
     } else {
       console.error('✗ PLAY FAILED', { 
         status: res.status,
         body: responseBody
       });
-      const errorMsg = responseBody?.error?.message || `HTTP ${res.status}`;
-      setStatus(statusEl, `Fehler: ${errorMsg}`, 'err');
+      const errorMsg = responseBody?.error?.message || res.status;
+      setStatus(statusEl, `API Response: ${errorMsg}`, 'err');
     }
   } catch (e) {
     console.error('✗ PLAY REQUEST NETWORK ERROR', { 
@@ -1460,15 +1461,33 @@ let lastScannedId = null;
 let listenersConfigured = false;
 
 function logout() {
+  console.log('🚪 LOGOUT INITIATED');
+  
+  // Stop camera
   stopCamera();
+  
+  // Disconnect Spotify player
   if (spotifyPlayer) {
     spotifyPlayer.disconnect();
     spotifyPlayer = null;
   }
   deviceId = null;
+  
+  // Clear all OAuth tokens and session data
+  console.log('🔒 Removing all OAuth tokens from localStorage');
   localStorage.removeItem('spotify_token');
   localStorage.removeItem('spotify_token_exp');
   localStorage.removeItem('spotify_refresh');
+  localStorage.removeItem('pkce_verifier');
+  localStorage.removeItem('pkce_state');
+  
+  // Reset global state
+  sdkReady = false;
+  listenersConfigured = false;
+  
+  console.log('✓ LOGOUT COMPLETE - Returning to password screen');
+  
+  // Return to password screen
   showScreen('screen-password');
 
   const pwError = document.getElementById('pwError');
@@ -1620,10 +1639,63 @@ function scanLoop() {
 }
 
 async function stopPlayback() {
+  console.log('⏹ STOP PLAYBACK INITIATED');
+  
+  try {
+    const token = await getAccessToken();
+    if (token) {
+      console.log('📤 Calling Spotify pause API');
+      const res = await fetch('https://api.spotify.com/v1/me/player/pause', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (res.ok || res.status === 204) {
+        console.log('✓ Pause API called successfully');
+      } else {
+        console.warn('⚠ Pause API returned status:', res.status);
+      }
+    }
+  } catch (e) {
+    console.error('⚠ Error calling pause API:', e.message);
+  }
+  
+  // Also use SDK pause as fallback
   if (spotifyPlayer) {
     await spotifyPlayer.pause().catch(() => {});
-    document.getElementById('npDisc').classList.remove('playing');
   }
+  
+  // Hide now-playing UI
+  const npEl = document.getElementById('nowPlaying');
+  if (npEl) {
+    console.log('Hiding now-playing UI');
+    npEl.classList.remove('visible');
+  }
+  
+  // Stop disc animation
+  const npDisc = document.getElementById('npDisc');
+  if (npDisc) {
+    npDisc.classList.remove('playing');
+  }
+  
+  // Clear test input for new track
+  const testInput = document.getElementById('testInput');
+  if (testInput) {
+    testInput.value = '';
+    testInput.focus();
+  }
+  
+  // Clear test status
+  const testStatus = document.getElementById('testStatus');
+  if (testStatus) {
+    testStatus.textContent = '';
+    testStatus.className = 'test-status';
+  }
+  
+  console.log('✓ STOP PLAYBACK COMPLETE');
 }
 </script>
 </body>
