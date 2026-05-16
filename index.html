@@ -400,19 +400,23 @@
       color: var(--muted);
     }
 
+    #scanner-container {
+      width: 100%;
+      height: 70vh;
+      position: relative;
+      overflow: hidden;
+      background: #000;
+      padding-bottom: env(safe-area-inset-bottom, 24px);
+    }
     .scanner-viewport {
       position: relative;
       width: 100%;
-      height: 55vh;
-      background: #000;
-      overflow: visible;
-      padding-bottom: env(safe-area-inset-bottom, 24px);
+      height: 100%;
     }
     #cameraVideo {
       display: block;
       width: 100%;
       height: 100%;
-      min-height: 50vh;
       object-fit: cover;
     }
     #cameraCanvas { display: none; }
@@ -604,6 +608,7 @@
 
     /* Test section */
     .test-card {
+      display: none !important;
       width: 100%;
       max-width: 540px;
       background: var(--surface);
@@ -780,7 +785,7 @@
       <span class="scanner-label">QR-Scanner</span>
       <span class="scanner-badge inactive" id="scannerBadge">Inaktiv</span>
     </div>
-    <div class="scanner-viewport">
+    <div id="scanner-container" class="scanner-viewport">
       <video id="cameraVideo" autoplay muted playsinline></video>
       <canvas id="cameraCanvas"></canvas>
       <div class="scan-overlay" id="scanOverlay" style="display:none">
@@ -1351,6 +1356,11 @@ async function playTrack(trackId) {
     }
 
     console.log('Playback erfolgreich gestartet.');
+    stopCamera();
+    const scannerContainer = document.getElementById('scanner-container');
+    if (scannerContainer) scannerContainer.style.display = 'none';
+    const camBtn = document.getElementById('camStartBtn');
+    if (camBtn) camBtn.style.display = 'none';
     showNowPlaying(state.device?.name);
     const hideContainer = document.getElementById('songInfoContainer');
     if (hideContainer) { hideContainer.style.display = 'none'; hideContainer.classList.remove('visible'); }
@@ -1578,6 +1588,7 @@ async function startCamera() {
   const badge       = document.getElementById('scannerBadge');
   const status      = document.getElementById('scannerStatus');
   const video       = document.getElementById('cameraVideo');
+  const camBtn      = document.getElementById('camStartBtn');
 
   scanPaused    = false;
   lastScannedId = null;
@@ -1592,6 +1603,7 @@ async function startCamera() {
 
     const startScanning = () => {
       if (isScanning) return;
+      if (camBtn) camBtn.style.display = 'none';
       placeholder.style.display = 'none';
       overlay.style.display     = 'flex';
       badge.textContent          = 'Aktiv';
@@ -1625,9 +1637,11 @@ function stopCamera() {
   const placeholder = document.getElementById('scanPlaceholder');
   const overlay     = document.getElementById('scanOverlay');
   const badge       = document.getElementById('scannerBadge');
+  const camBtn      = document.getElementById('camStartBtn');
   if (placeholder) placeholder.style.display = 'flex';
   if (overlay)     overlay.style.display     = 'none';
   if (badge)       { badge.textContent = 'Inaktiv'; badge.classList.add('inactive'); }
+  if (camBtn)      camBtn.style.display      = 'inline-block';
 }
 
 async function scanLoop() {
@@ -1686,11 +1700,16 @@ async function stopPlayback() {
     console.error('⚠ Error calling pause API:', e.message);
   }
   
-  // Also use SDK pause as fallback
-  // SDK disabled — no SDK pause fallback.
-
-  // Hide now-playing UI and related info
   hideNowPlaying();
+
+  const scannerContainer = document.getElementById('scanner-container');
+  if (scannerContainer) scannerContainer.style.display = 'block';
+
+  const camBtn = document.getElementById('camStartBtn');
+  if (camBtn) camBtn.style.display = 'none';
+
+  console.log('✓ Restarting camera after stop');
+  await startCamera();
 
   console.log('✓ STOP PLAYBACK COMPLETE');
 }
