@@ -1029,6 +1029,9 @@ async function initSpotifyPlayer(token) {
   loadSpotifySDK();
   await sdkReadyPromise;
 
+  let readyResolve;
+  const readyPromise = new Promise(resolve => { readyResolve = resolve; });
+
   spotifyPlayer = new Spotify.Player({
     name:              'Mockster Player',
     getOAuthToken:     cb => cb(token),
@@ -1037,6 +1040,7 @@ async function initSpotifyPlayer(token) {
 
   spotifyPlayer.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
+    readyResolve(device_id);
   });
   spotifyPlayer.addListener('not_ready', () => { deviceId = null; });
   spotifyPlayer.addListener('player_state_changed', handlePlayerStateChange);
@@ -1050,6 +1054,22 @@ async function initSpotifyPlayer(token) {
     console.error('Account error:', message));
 
   await spotifyPlayer.connect();
+  await Promise.race([
+    readyPromise,
+    new Promise(resolve => setTimeout(resolve, 8000)),
+  ]);
+}
+
+async function findActiveSpotifyDevice(token) {
+  const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => ({}));
+  const devices = Array.isArray(data.devices) ? data.devices : [];
+  const activeDevice = devices.find(d => d.is_active) || devices[0];
+  return activeDevice?.id || null;
 }
 
 function handlePlayerStateChange(state) {
@@ -1086,11 +1106,16 @@ async function playTrack(trackId, statusEl) {
     return;
   }
   if (!deviceId) {
-    setStatus(statusEl, 'Player noch nicht bereit. Kurz warten…', '');
-    // wait briefly
+    setStatus(statusEl, 'Player noch nicht bereit. Suche ein aktives Gerät…', '');
     await new Promise(r => setTimeout(r, 1500));
     if (!deviceId) {
-      setStatus(statusEl, 'Gerät nicht gefunden. SDK läuft?', 'err');
+      deviceId = await findActiveSpotifyDevice(token);
+      if (deviceId) {
+        setStatus(statusEl, 'Nutze aktives Spotify-Gerät.', 'ok');
+      }
+    }
+    if (!deviceId) {
+      setStatus(statusEl, 'Gerät nicht gefunden. Öffne Spotify oder warte auf den Web-Player.', 'err');
       return;
     }
   }
@@ -1131,39 +1156,58 @@ function setStatus(el, text, type) {
 let cameraStream  = null;
 let isScanning    = false;
 let lastScannedId = null;
-let gameInitialized = false;
+let listenersConfigured = false;
+
+function logout() {
+  stopCamera();
+  if (spotifyPlayer) {
+    spotifyPlayer.disconnect();
+    spotifyPlayer = null;
+  }
+  deviceId = null;
+  localStorage.removeItem('spotify_token');
+  localStorage.removeItem('spotify_token_exp');
+  localStorage.removeItem('spotify_refresh');
+  showScreen('screen-password');
+
+  const pwError = document.getElementById('pwError');
+  if (pwError) {
+    pwError.textContent = 'Logout erfolgreich. Gib den Zugangscode erneut ein.';
+    pwError.classList.add('visible');
+  }
+}
 
 async function initGame() {
-  if (gameInitialized) return;
-  gameInitialized = true;
-
   const token = await getAccessToken();
   if (!token) { showScreen('screen-connect'); return; }
-  initSpotifyPlayer(token).catch(console.error);
+  await initSpotifyPlayer(token).catch(console.error);
+
+  if (listenersConfigured) return;
+  listenersConfigured = true;
 
   // camera
   document.getElementById('camStartBtn').addEventListener('click', startCamera);
   document.getElementById('stopBtn').addEventListener('click', stopPlayback);
 
   // logout
-  document.getElementById('logoutBtn').addEventListener('click', () => {
-    stopCamera();
-    if (spotifyPlayer) spotifyPlayer.disconnect();
-    localStorage.removeItem('spotify_token');
-    localStorage.removeItem('spotify_token_exp');
-    localStorage.removeItem('spotify_refresh');
-    showScreen('screen-password');
-  });
+  document.getElementById('logoutBtn').addEventListener('click', logout);
 
   // test input
   document.getElementById('testPlayBtn').addEventListener('click', async () => {
     const val     = document.getElementById('testInput').value;
-    const trackId = parseSpotifyTrackId(val);
     const status  = document.getElementById('testStatus');
-    if (!trackId) {
-      setStatus(status, 'Kein gültiger Spotify-Link erkannt.', 'err');
+
+    if (!val.trim()) {
+      setStatus(status, 'Bitte Spotify-Link einfügen, bevor du auf Play klickst.', 'err');
       return;
     }
+
+    const trackId = parseSpotifyTrackId(val);
+    if (!trackId) {
+      setStatus(status, 'Ungültiger Spotify-Link. Bitte vollständige Track-URL einfügen.', 'err');
+      return;
+    }
+
     await playTrack(trackId, status);
   });
   document.getElementById('testInput').addEventListener('keydown', async e => {
